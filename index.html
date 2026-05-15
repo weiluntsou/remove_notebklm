@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Owl Slides - 移除 NotebookLM 浮水印</title>
+    <meta name="description" content="自動偵測並移除 NotebookLM 右下角浮水印，支援 PDF、PPTX 及圖片 (PNG/JPG)">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <!-- Include Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar / Navigation placeholder -->
+        <nav class="sidebar">
+            <div class="logo">
+                <span class="logo-icon">🦉</span>
+                <span class="logo-text">Owl Slides</span>
+            </div>
+            <ul class="nav-links">
+                <li><a href="#" class="nav-item">自訂表達</a></li>
+                <li><a href="#" class="nav-item">一鍵風格</a></li>
+                <li><a href="#" class="nav-item active">去浮水印</a></li>
+            </ul>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-bar">
+                <div class="tab-selectors">
+                    <button class="tab-btn active">NotebookLM</button>
+                </div>
+            </header>
+
+            <div class="content-wrapper">
+                <div class="tool-header">
+                    <h1>去浮水印 — PDF / PPTX / 圖片</h1>
+                    <p>自動偵測並移除 NotebookLM 右下角浮水印，支援 PDF、PPTX 及圖片 (PNG/JPG)</p>
+                </div>
+
+                <div class="info-card success">
+                    <span class="icon">✅</span>
+                    <div class="info-text">
+                        <strong>繁體中文高正確率：</strong> 本軟體生成的指令已內建臺灣繁體中文語言規範，大幅降低簡體字與怪字出現機率。若仍有少數錯字，建議下載後在 PowerPoint 中直接以文字方塊覆蓋修改即可。
+                    </div>
+                </div>
+
+                <details class="usage-guide">
+                    <summary>
+                        <span class="icon">📖</span> 使用說明
+                        <span class="chevron">▼</span>
+                    </summary>
+                    <div class="guide-content">
+                        <ol>
+                            <li>在 NotebookLM 中產生簡報後，點擊匯出。</li>
+                            <li>將匯出的 PDF, PPTX 或圖片拖曳到下方區域。</li>
+                            <li>系統會自動處理並移除右下角的浮水印。</li>
+                            <li>處理完成後，檔案將自動下載。</li>
+                        </ol>
+                    </div>
+                </details>
+
+                <div class="settings-group">
+                    <label class="checkbox-container">
+                        <input type="checkbox" id="autoRemoveCheckbox" checked>
+                        <span class="checkmark"></span>
+                        自動去除 NotebookLM 浮水印
+                    </label>
+                </div>
+
+                <div class="dropzone-container" id="dropzone">
+                    <input type="file" id="fileInput" accept=".pdf,.pptx,.png,.jpg,.jpeg" multiple style="display: none;">
+                    <div class="dropzone-content">
+                        <div class="upload-icon">📤</div>
+                        <h3>拖曳或點擊上傳 NotebookLM 匯出的 PDF、PPTX 或圖片 (PNG/JPG)</h3>
+                        <p class="support-text">支援多檔案同時處理</p>
+                    </div>
+                    <div class="processing-overlay" id="processingOverlay">
+                        <div class="spinner"></div>
+                        <p>處理中，請稍候...</p>
+                    </div>
+                </div>
+
+                <div class="results-container" id="resultsContainer">
+                    <!-- Results will be injected here -->
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
