@@ -370,15 +370,457 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // 2. 一鍵風格 (One-Click Style)
+    const styleYamls = {
+        'ink-wash-classical': `# 古典中國風簡報 / Classical Chinese Ink Style Presentation
+style: ink-wash-classical
+
+background: 米白宣紙底 / rice-paper off-white (#F5F0E6)
+accent_colors:
+  - 硃砂紅 / vermillion red (#8B2500)
+  - 墨黑 / ink black (#1A1A1A)
+  - 古銅金 / antique gold (#B8860B)
+
+typography:
+  headings: 書法楷體 / calligraphic Kai, bold
+  body: 明體 / Ming serif, regular
+  size_ratio: 標題為內文 3 倍 / headings 3x body size
+
+layout_rules:
+  - 大量留白，內容佔比 ≤ 40% / 40% content, 60% whitespace
+  - 水墨暈染作為區塊分隔 / ink wash as section dividers
+  - 直式標題可穿插使用 / vertical headings allowed
+  - 印章元素標記重點 / seal stamp for emphasis marks
+  - 每頁僅一個核心概念 / one core concept per slide
+
+visual_elements:
+  - 山水潑墨背景 / landscape ink splash backgrounds
+  - 竹、梅、蘭裝飾邊框 / bamboo, plum, orchid ornamental borders
+  - 雲紋、回紋作為分隔線 / cloud and key-fret patterns as dividers
+  - 水墨漸層過渡 / ink wash gradient transitions
+  - 印章（方、圓）標注重點 / seal stamps (square, round) for highlights
+
+content_rules:
+  - 引言使用古詩詞格式 / quotes in classical poetry format
+  - 數據以書卷軸形式呈現 / data in scroll format
+  - 標題不超過 10 字 / headings ≤ 10 characters
+  - 使用繁體中文（台灣用語）/ use Traditional Chinese (Taiwan)
+
+prohibitions:
+  - 禁用漸層色塊 / no gradient color blocks
+  - 禁用圓角卡片 / no rounded corner cards
+  - 禁用螢光色 / no fluorescent colors
+  - 禁用西式裝飾線 / no western ornamental rules
+  - 禁用 emoji / no emoji icons`,
+
+        'tech-analytical': `# 理工解析風簡報 / Tech Analytical Presentation
+style: tech-analytical
+
+background: 科技深藍 / tech dark blue (#0A192F)
+accent_colors:
+  - 數據青 / data cyan (#64FFDA)
+  - 警示橘 / alert orange (#FF6B6B)
+  - 網格灰 / grid gray (#8892B0)
+
+typography:
+  headings: 現代黑體 / modern sans-serif, bold
+  body: 等寬字體 / monospace, regular
+  size_ratio: 標題為內文 2.5 倍
+
+layout_rules:
+  - 嚴格對齊，網格系統 / strict alignment, grid system
+  - 內容區塊模組化 / modular content blocks
+  - 數據可視化優先 / data visualization first
+  - 大量使用線條與節點 / heavy use of lines and nodes
+
+visual_elements:
+  - 點陣圖或網格背景 / dot matrix or grid backgrounds
+  - 流程圖、樹狀圖、雷達圖 / flowcharts, tree diagrams, radar charts
+  - 代碼視窗樣式卡片 / code-window style cards
+  - 發光線條與微光效 / glowing lines and subtle bloom
+
+content_rules:
+  - 條列式說明 / bullet points
+  - 精準數據佐證 / exact data proof
+  - 邏輯推演步驟 / logical deduction steps
+  - 使用繁體中文（台灣用語）
+
+prohibitions:
+  - 禁用花俏字體 / no decorative fonts
+  - 禁用隨機裝飾 / no random ornaments
+  - 禁用過度漸層 / no excessive gradients`,
+
+        'comic-hero': `# 美漫英雄風簡報 / Comic Hero Style Presentation
+style: comic-hero
+
+background: 網點紙紋底 / halftone dot pattern (#FDF8E4)
+accent_colors:
+  - 英雄紅 / hero red (#E62429)
+  - 閃電黃 / bolt yellow (#FFD700)
+  - 漫畫黑 / comic black (#151515)
+
+typography:
+  headings: 粗黑體 / heavy sans-serif, bold italic
+  body: 手寫漫畫體 / comic lettering style, regular
+
+layout_rules:
+  - 不對齊切割，斜角排版 / diagonal splits, dynamic layout
+  - 文字在對話框或爆炸框內 / text inside speech bubbles
+  - 粗黑邊框分隔 / thick black borders
+  - 每頁具有強烈動態感 / strong sense of motion
+
+visual_elements:
+  - 半色調網點 / halftone dots
+  - 速度線與集中線 / speed lines and action focus lines
+  - 撞色高對比 / high contrast, solid color blocking
+  - 粗大陰影線條 / heavy ink drop shadows
+
+content_rules:
+  - 關鍵字加上爆炸效果 / keywords with burst effects
+  - 語氣充滿能量與熱情 / energetic and passionate tone
+  - 使用繁體中文（台灣用語）
+
+prohibitions:
+  - 禁用柔和漸層 / no soft gradients
+  - 禁用細緻線條 / no fine thin lines
+  - 禁用極簡風格 / no minimalist empty spaces`,
+
+        'clay-art': `# 黏土藝術風簡報 / Clay Art Style Presentation
+style: clay-art
+
+background: 馬卡龍粉底 / macaron pastel background (#FCE4EC)
+accent_colors:
+  - 奶油黃 / butter yellow (#FFF9C4)
+  - 薄荷綠 / mint green (#B2DFDB)
+  - 嬰兒藍 / baby blue (#BBDEFB)
+
+typography:
+  headings: 圓體 / rounded sans-serif, heavy
+  body: 圓體 / rounded sans-serif, regular
+
+layout_rules:
+  - 置中排版為主 / mostly centered layout
+  - 柔軟圓潤的卡片設計 / soft, rounded card designs
+  - 留白空間寬裕 / generous whitespace
+  - 元素間具有厚度與立體感 / elements have thickness and 3D volume
+
+visual_elements:
+  - 3D 黏土模型材質 / 3D clay modeling texture
+  - 柔和的全局光照陰影 / soft global illumination shadows
+  - 無銳角，全部倒圓角 / no sharp corners, all rounded
+  - 童趣可愛的插圖 / playful and cute illustrations
+
+content_rules:
+  - 語氣親切活潑 / friendly and lively tone
+  - 概念用擬人化物件比喻 / concepts as anthropomorphic clay objects
+  - 適合教育或兒童產品 / suitable for education or kids products
+  - 使用繁體中文（台灣用語）
+
+prohibitions:
+  - 禁用銳利幾何形狀 / no sharp geometric shapes
+  - 禁用寫實照片 / no realistic photography
+  - 禁用暗黑或賽博龐克色調 / no dark or cyberpunk palettes`,
+
+        'watercolor-storybook': `# 繪本水彩風簡報 / Watercolor Storybook Presentation
+style: watercolor-storybook
+
+background: 粗糙水彩紙紋 / rough watercolor paper (#FAFAFA)
+accent_colors:
+  - 暖陽橘 / warm sun orange (#FFA726)
+  - 森林綠 / forest green (#66BB6A)
+  - 晚霞紫 / dusk purple (#AB47BC)
+
+typography:
+  headings: 手寫童趣體 / playful handwriting font, bold
+  body: 柔和明體 / soft serif, regular
+
+layout_rules:
+  - 邊緣不規則暈染 / irregular edge washes
+  - 不受網格拘束的自由排版 / free-form layout
+  - 插圖與文字自然交融 / illustrations naturally blending with text
+  - 畫面焦點集中於中央 / focus centralized on the slide
+
+visual_elements:
+  - 水彩暈染邊緣 / watercolor wash edges
+  - 透明度疊加效果 / transparent color overlays
+  - 手繪鉛筆輪廓線 / hand-drawn pencil outlines
+  - 溫暖的色調與柔光 / warm tones and soft lighting
+
+content_rules:
+  - 用說故事的口吻 / storytelling tone
+  - 情感導向的文字描述 / emotion-driven text descriptions
+  - 敘事具有起承轉合 / narrative has clear structure
+  - 使用繁體中文（台灣用語）
+
+prohibitions:
+  - 禁用向量扁平圖標 / no vector flat icons
+  - 禁用金屬或螢光質感 / no metallic or fluorescent textures
+  - 禁用冷硬的科技排版 / no cold, rigid tech layouts`,
+
+        'ligne-claire': `# 清線藝術風簡報 / Ligne Claire Style Presentation
+style: ligne-claire
+
+background: 畫布米白 / canvas off-white (#FFFDF7)
+accent_colors:
+  - 丁丁藍 / tintin blue (#2980B9)
+  - 芥末黃 / mustard yellow (#F1C40F)
+  - 復古紅 / retro red (#E74C3C)
+
+typography:
+  headings: 復古無襯線 / retro sans-serif, bold
+  body: 現代無襯線 / modern sans-serif, light
+
+layout_rules:
+  - 排版整潔、像藝廊展品 / clean layout, like a gallery exhibit
+  - 清晰的分隔線 / clear divider lines
+  - 大面積純色填色 / large areas of flat color
+  - 留白與圖文比例 1:1 / 1:1 whitespace to image/text ratio
+
+visual_elements:
+  - 統一粗細的黑色輪廓線 / uniform black outline (Ligne claire)
+  - 無陰影、無漸層 / no shadows, no gradients
+  - 色彩飽和度中等、明度高 / medium saturation, high brightness
+  - 歐洲漫畫或波普藝術感 / European comic or Pop Art feel
+
+content_rules:
+  - 說明清晰、直指核心 / clear explanations
+  - 高雅的藝廊調性 / elegant gallery tone
+  - 避免冗長文字，多用圖說 / avoid long text, use captions
+  - 使用繁體中文（台灣用語）
+
+prohibitions:
+  - 禁用陰影與立體效果 / no drop shadows or 3D effects
+  - 禁用漸層色 / no gradient colors
+  - 禁用複雜的背景圖 / no complex background images`,
+
+        'bande-dessinee': `# 歐漫文學風簡報 / Bande Dessinée Literary Presentation
+style: bande-dessinee
+
+background: 舊紙張色 / aged paper color (#F4EFE6)
+accent_colors:
+  - 墨水藍 / ink blue (#1B263B)
+  - 赭石色 / ochre (#B08968)
+  - 灰綠色 / sage green (#7F5539)
+
+typography:
+  headings: 古典襯線體 / classical serif, bold
+  body: 復古手寫或襯線 / retro handwriting or serif
+
+layout_rules:
+  - 如同圖文小說的分鏡 / layout like a graphic novel
+  - 文字常伴隨手繪插圖 / text often accompanies hand-drawn illustrations
+  - 邊框具手繪質感 / borders have hand-drawn texture
+  - 敘事步調緩慢、具沈浸感 / slow narrative pacing, immersive
+
+visual_elements:
+  - 濃密的墨線交叉排線 / dense cross-hatching ink lines
+  - 低飽和度水彩或淡彩上色 / low-saturation watercolor washes
+  - 陰影以線條表現而非色塊 / shadows depicted by lines
+  - 帶有深度與憂鬱的文學感 / deep, literary feel
+
+content_rules:
+  - 文字帶有哲思與文學性 / text has philosophical qualities
+  - 用詞優美、具隱喻 / beautiful wording, metaphorical
+  - 適合文化、藝術主題 / suitable for culture, art themes
+  - 使用繁體中文（台灣用語）
+
+prohibitions:
+  - 禁用鮮豔飽和色 / no bright saturated colors
+  - 禁用向量幾何圖形 / no vector geometric shapes
+  - 禁用過度歡樂的卡通風格 / no overly cheerful cartoon styles`,
+
+        'webtoon': `# Webtoon 韓漫風簡報 / Webtoon Style Presentation
+style: webtoon
+
+background: 數位螢幕白 / digital screen white (#FFFFFF)
+accent_colors:
+  - 浪漫粉紫 / romantic pink-purple (#DDA0DD)
+  - 魔法青光 / magic cyan glow (#00FFFF)
+  - 深邃黑 / deep black (#121212)
+
+typography:
+  headings: 韓式黑體 / korean style gothic, extra bold
+  body: 清晰無襯線 / clear sans-serif, regular
+
+layout_rules:
+  - 垂直流動的視覺引導 / vertical flow visual guidance
+  - 大量使用跨頁/滿版畫面 / heavy use of full-bleed frames
+  - 對話框式文字排版 / speech bubble text layout
+  - 適合手機螢幕閱讀的比例 / proportions suited for mobile
+
+visual_elements:
+  - 高飽和度的數位上色 / high-saturation digital coloring
+  - 華麗的光影與發光特效 / gorgeous lighting and glow effects
+  - 人物/主體帶有細緻高光 / subjects with detailed highlights
+  - 閃爍的星點或特效網點 / sparkling stars or effect screentones
+
+content_rules:
+  - 節奏明快、充滿戲劇張力 / fast-paced, full of dramatic tension
+  - 常用狀聲詞或情緒符號 / frequent use of sound effects
+  - 吸引年輕數位原生世代 / appeals to young digital natives
+  - 使用繁體中文（台灣用語）
+
+prohibitions:
+  - 禁用老舊紙張紋理 / no old paper textures
+  - 禁用沉悶的低對比色 / no dull, low-contrast colors
+  - 禁用擁擠的長篇文字 / no crowded long text blocks`,
+
+        'yonkoma': `# 四格漫畫風簡報 / 4-Koma Comic Presentation
+style: yonkoma
+
+background: 漫畫網點底 / comic screentone base (#F0F0F0)
+accent_colors:
+  - 經典藍 / classic blue (#0047AB)
+  - 活力橘 / energetic orange (#FF7F50)
+  - 漫畫黑 / comic black (#000000)
+
+typography:
+  headings: 粗圓體 / heavy rounded, bold
+  body: 漫畫手寫體 / comic handwriting
+
+layout_rules:
+  - 嚴格的四格等分結構 / strict 4-panel equal split structure
+  - 起 (引言)、承 (發展)、轉 (高潮/意外)、合 (結論)
+  - 格與格之間有明確框線 / clear borders between panels
+  - 閱讀動線由上至下 / top-to-bottom reading flow
+
+visual_elements:
+  - 簡單的線條與大色塊 / simple lines and large color blocks
+  - 誇張的面部表情符號 / exaggerated facial expressions
+  - 背景簡單，聚焦主體 / simple backgrounds, focus on subjects
+  - 對話框與內心獨白框 / speech bubbles and thought balloons
+
+content_rules:
+  - 每一頁就是一個完整的短篇故事 / each slide is a complete short story
+  - 用幽默或反差來傳達概念 / use humor or contrast
+  - 文字極度精簡，依賴圖文配合 / extremely concise text
+  - 使用繁體中文（台灣用語）
+
+prohibitions:
+  - 禁用複雜的3D渲染 / no complex 3D renders
+  - 禁用無邊界的散亂排版 / no borderless scattered layouts
+  - 禁用嚴肅枯燥的數據羅列 / no serious, dry data listing`,
+
+        'paper-cut': `# 紙雕剪影風簡報 / Paper Cut Silhouette Presentation
+style: paper-cut
+
+background: 深邃夜藍 / deep night blue (#0B132B)
+accent_colors:
+  - 紙張白 / paper white (#FDFFFC)
+  - 晨曦金 / dawn gold (#FF9F1C)
+  - 剪影灰 / silhouette gray (#3A506B)
+
+typography:
+  headings: 優雅襯線 / elegant serif, bold
+  body: 俐落黑體 / clean sans-serif, light
+
+layout_rules:
+  - 畫面具有深度的同心圓或同心矩形構圖 / concentric depth layout
+  - 內容被包圍在紙雕框架中 / content framed within paper cut layers
+  - 留白用以展現紙張厚度 / whitespace used to show paper thickness
+  - 視覺引導朝向畫面深處 / visual flow directed towards the depth
+
+visual_elements:
+  - 多層次紙張堆疊效果 / multi-layered paper stacking effect
+  - 精緻的邊緣剪影輪廓 / intricate edge silhouette outlines
+  - 柔和的背光與強烈的投影 / soft backlighting and strong drop shadows
+  - 單色或鄰近色層層遞進 / monochromatic colors stepping in depth
+
+content_rules:
+  - 帶有童話或夢幻般的敘事 / fairytale or dreamlike narrative
+  - 適合傳達深刻、詩意的主題 / suitable for profound, poetic themes
+  - 使用繁體中文（台灣用語）
+
+prohibitions:
+  - 禁用寫實質感的照片 / no photorealistic textures
+  - 禁用扁平無陰影的設計 / no flat, shadowless designs
+  - 禁用混亂的色彩搭配 / no chaotic color schemes`,
+
+        'magic-academy': `# 魔法學院風簡報 / Magic Academy Presentation
+style: magic-academy
+
+background: 泛黃羊皮紙 / aged parchment (#EADCA6)
+accent_colors:
+  - 魔法深紅 / magic crimson (#722F37)
+  - 祖母綠 / emerald green (#046307)
+  - 燙金黃 / foil gold (#CFB53B)
+
+typography:
+  headings: 華麗哥德體 / ornate gothic or blackletter, bold
+  body: 古典襯線體 / classic serif, regular
+
+layout_rules:
+  - 對稱的學院徽章排版 / symmetrical academy crest layout
+  - 文字四周環繞古典花框 / text surrounded by classical borders
+  - 像是一本古老魔法書的內頁 / looks like an ancient spellbook
+  - 首字母放大裝飾 (Drop Cap) / decorated drop caps
+
+visual_elements:
+  - 羊皮紙紋理與墨水污漬 / parchment texture and ink stains
+  - 蠟封印章、羽毛筆、魔杖圖騰 / wax seals, quills, wand motifs
+  - 神秘的星象圖或盧恩符文 / mysterious astrological charts
+  - 微微閃爍的金粉魔法特效 / slightly sparkling gold dust magic
+
+content_rules:
+  - 將概念包裝成「魔法咒語」 / package concepts as "spells"
+  - 語氣神秘、充滿知識底蘊 / mysterious, knowledgeable tone
+  - 適合遊戲化培訓 / suitable for gamified training
+  - 使用繁體中文（台灣用語）
+
+prohibitions:
+  - 禁用現代扁平化設計 / no modern flat design
+  - 禁用霓虹色與科技感元素 / no neon colors or tech elements
+  - 禁用無襯線現代字體 / no modern sans-serif fonts`,
+
+        'tilt-shift': `# 微縮模型風簡報 / Tilt-shift Miniature Presentation
+style: tilt-shift
+
+background: 柔和純色底板 / soft solid color baseplate (#E0E0E0)
+accent_colors:
+  - 玩具紅 / toy red (#E63946)
+  - 模型草綠 / diorama grass green (#4CAF50)
+  - 塑膠藍 / plastic blue (#1D3557)
+
+typography:
+  headings: 圓潤粗黑體 / rounded heavy gothic, bold
+  body: 乾淨黑體 / clean sans-serif, regular
+
+layout_rules:
+  - 俯瞰或 45 度角等角透視構圖 / top-down or isometric layout
+  - 畫面中央清晰，邊緣極度模糊 / center clear, edges extremely blurred
+  - 資訊框像是立在模型旁的標籤板 / info boxes look like labels
+  - 元素排列如精緻的沙盤推演 / arranged like a sandbox diorama
+
+visual_elements:
+  - 移軸攝影的極淺景深 / very shallow depth of field (Tilt-shift)
+  - 塑膠、木頭質感的微縮物件 / plastic, wood textured miniature objects
+  - 柔和的頂光與真實的實體陰影 / soft top lighting and realistic shadows
+  - 具有宏觀視角觀察微小世界的感覺 / macro perspective of a micro world
+
+content_rules:
+  - 適合呈現城市規劃、系統架構 / good for urban planning, architecture
+  - 將大概念具象化為小物件 / physicalize big concepts into small objects
+  - 語氣客觀且具總覽性 / objective and overarching tone
+  - 使用繁體中文（台灣用語）
+
+prohibitions:
+  - 禁用全景深清晰照片 / no deep-focus clear photos
+  - 禁用扁平的 2D 繪圖 / no flat 2D drawings
+  - 禁用黑暗憂鬱的色調 / no dark, gloomy tones`
+    };
+
     document.querySelectorAll('.style-card').forEach(card => {
         card.addEventListener('click', () => {
-            const stylePrompt = card.getAttribute('data-style');
+            const styleId = card.getAttribute('data-style-id');
+            const styleYaml = styleYamls[styleId];
+            
             const prompt = `請扮演一位頂尖的視覺藝術總監。
-接下來的簡報大綱，請你完全套用以下視覺風格來進行每一頁的設計指導：
+接下來的簡報大綱，請你完全遵循以下 YAML 格式定義的設計規範，來進行每一頁的設計指導：
 
-【指定視覺風格】：${stylePrompt}
+\`\`\`yaml
+${styleYaml}
+\`\`\`
 
-請在輸出每一頁的「視覺建議」時，詳細描述應使用什麼配色、材質、圖形或照片風格，確保符合上述指定的調性。
+請在輸出每一頁的「視覺建議」時，嚴格遵守上述 YAML 中定義的 typography, layout_rules, visual_elements 與 prohibitions，詳細描述畫面。
 輸出請使用臺灣繁體中文。`;
             document.getElementById('output-style').value = prompt;
         });
