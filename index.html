@@ -3,28 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Owl Slides - 移除 NotebookLM 浮水印</title>
-    <meta name="description" content="自動偵測並移除 NotebookLM 右下角浮水印，支援 PDF、PPTX 及圖片 (PNG/JPG)">
+    <title>AI 簡報助手</title>
+    <meta name="description" content="自動偵測並移除 NotebookLM 右下角浮水印，並提供強大的 AI 提示詞生成工具">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
-    <!-- Include Libraries -->
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
     <div class="app-container">
-        <!-- Sidebar / Navigation placeholder -->
+        <!-- Sidebar Navigation -->
         <nav class="sidebar">
             <div class="logo">
-                <span class="logo-icon">🦉</span>
-                <span class="logo-text">Owl Slides</span>
+                <span class="logo-icon">✨</span>
+                <span class="logo-text">AI 簡報助手</span>
             </div>
+            
+            <div class="nav-group-title">NotebookLM 工具</div>
             <ul class="nav-links">
-                <li><a href="#" class="nav-item">自訂表達</a></li>
-                <li><a href="#" class="nav-item">一鍵風格</a></li>
-                <li><a href="#" class="nav-item active">去浮水印</a></li>
+                <li><a href="#" class="nav-item" data-target="tab-custom">自訂表達 (指令生成)</a></li>
+                <li><a href="#" class="nav-item" data-target="tab-style">一鍵風格</a></li>
+                <li><a href="#" class="nav-item active" data-target="tab-watermark">去浮水印</a></li>
+            </ul>
+
+            <div class="nav-group-title" style="margin-top: 24px;">ChatGPT 工具</div>
+            <ul class="nav-links">
+                <li><a href="#" class="nav-item" data-target="tab-poster">GPT 海報攝影</a></li>
             </ul>
         </nav>
 
@@ -32,62 +38,193 @@
         <main class="main-content">
             <header class="top-bar">
                 <div class="tab-selectors">
-                    <button class="tab-btn active">NotebookLM</button>
+                    <h2 id="current-tool-title">去浮水印</h2>
                 </div>
             </header>
 
             <div class="content-wrapper">
-                <div class="tool-header">
-                    <h1>去浮水印 — PDF / PPTX / 圖片</h1>
-                    <p>自動偵測並移除 NotebookLM 右下角浮水印，支援 PDF、PPTX 及圖片 (PNG/JPG)</p>
+                
+                <!-- TAB 1: 去浮水印 (Watermark) -->
+                <div id="tab-watermark" class="tool-section active">
+                    <div class="tool-header">
+                        <h1>去浮水印 — PDF / PPTX / 圖片</h1>
+                        <p>自動偵測並移除 NotebookLM 右下角浮水印，支援 PDF、PPTX 及圖片 (PNG/JPG)</p>
+                    </div>
+
+                    <div class="info-card success">
+                        <span class="icon">✅</span>
+                        <div class="info-text">
+                            <strong>極致精準：</strong> 最新演算法會動態偵測浮水印邊界與背景色彩，實現完美無痕的去除效果，絕對不會挖掉你的正文。
+                        </div>
+                    </div>
+
+                    <details class="usage-guide">
+                        <summary>
+                            <span class="icon">📖</span> 使用說明
+                            <span class="chevron">▼</span>
+                        </summary>
+                        <div class="guide-content">
+                            <ol>
+                                <li>在 NotebookLM 中產生簡報後，點擊匯出。</li>
+                                <li>將匯出的 PDF, PPTX 或圖片拖曳到下方區域。</li>
+                                <li>系統會自動處理並移除右下角的浮水印。</li>
+                                <li>處理完成後，檔案將自動下載。</li>
+                            </ol>
+                        </div>
+                    </details>
+
+                    <div class="settings-group">
+                        <label class="checkbox-container">
+                            <input type="checkbox" id="autoRemoveCheckbox" checked>
+                            <span class="checkmark"></span>
+                            自動去除 NotebookLM 浮水印
+                        </label>
+                    </div>
+
+                    <div class="dropzone-container" id="dropzone">
+                        <input type="file" id="fileInput" accept=".pdf,.pptx,.png,.jpg,.jpeg" multiple style="display: none;">
+                        <div class="dropzone-content">
+                            <div class="upload-icon">📤</div>
+                            <h3>拖曳或點擊上傳 NotebookLM 匯出的 PDF、PPTX 或圖片 (PNG/JPG)</h3>
+                            <p class="support-text">支援多檔案同時處理</p>
+                        </div>
+                        <div class="processing-overlay" id="processingOverlay">
+                            <div class="spinner"></div>
+                            <p>處理中，請稍候...</p>
+                        </div>
+                    </div>
+
+                    <div class="results-container" id="resultsContainer"></div>
                 </div>
 
-                <div class="info-card success">
-                    <span class="icon">✅</span>
-                    <div class="info-text">
-                        <strong>繁體中文高正確率：</strong> 本軟體生成的指令已內建臺灣繁體中文語言規範，大幅降低簡體字與怪字出現機率。若仍有少數錯字，建議下載後在 PowerPoint 中直接以文字方塊覆蓋修改即可。
+                <!-- TAB 2: 自訂表達 (Custom Expression) -->
+                <div id="tab-custom" class="tool-section" style="display: none;">
+                    <div class="tool-header">
+                        <h1>自訂表達 — 簡報指令生成</h1>
+                        <p>透過步驟式引導，為 NotebookLM 產生最專業的簡報生成提示詞</p>
+                    </div>
+                    
+                    <div class="wizard-container">
+                        <div class="form-group">
+                            <label>1. 選擇敘事結構</label>
+                            <select id="custom-narrative" class="form-select">
+                                <option value="三幕劇結構 (背景->衝突->解法)">三幕劇結構 (經典故事)</option>
+                                <option value="問題-解決-行動 (痛點->方案->證明)">問題-解決-行動 (提案用)</option>
+                                <option value="黃金圈 (Why->How->What)">黃金圈法則 (品牌理念)</option>
+                                <option value="教學階梯型 (概念->深入->應用)">教學階梯型 (教育培訓)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>2. 選擇簡報風格</label>
+                            <select id="custom-style" class="form-select">
+                                <option value="專業嚴謹的企業風格，色彩沉穩">企業品牌</option>
+                                <option value="活潑有創意的科技新創風格">科技新創</option>
+                                <option value="清晰易懂的教育培訓風格">教育培訓</option>
+                                <option value="極簡現代主義風格，大量留白">極簡現代</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>3. 內容與受眾</label>
+                            <input type="text" id="custom-audience" class="form-input" placeholder="例如：針對高階主管、一般大眾、學生...">
+                        </div>
+
+                        <button id="btn-generate-custom" class="btn btn-primary">生成指令</button>
+                    </div>
+
+                    <div class="prompt-output">
+                        <h3>生成的提示詞 (複製後貼上至 NotebookLM)</h3>
+                        <textarea id="output-custom" class="form-textarea" readonly placeholder="點擊上方按鈕生成..."></textarea>
+                        <button class="btn btn-copy" onclick="copyToClipboard('output-custom')">複製指令</button>
                     </div>
                 </div>
 
-                <details class="usage-guide">
-                    <summary>
-                        <span class="icon">📖</span> 使用說明
-                        <span class="chevron">▼</span>
-                    </summary>
-                    <div class="guide-content">
-                        <ol>
-                            <li>在 NotebookLM 中產生簡報後，點擊匯出。</li>
-                            <li>將匯出的 PDF, PPTX 或圖片拖曳到下方區域。</li>
-                            <li>系統會自動處理並移除右下角的浮水印。</li>
-                            <li>處理完成後，檔案將自動下載。</li>
-                        </ol>
+                <!-- TAB 3: 一鍵風格 (One-Click Style) -->
+                <div id="tab-style" class="tool-section" style="display: none;">
+                    <div class="tool-header">
+                        <h1>一鍵風格</h1>
+                        <p>快速套用預設的超強 NotebookLM 視覺與內容風格</p>
                     </div>
-                </details>
 
-                <div class="settings-group">
-                    <label class="checkbox-container">
-                        <input type="checkbox" id="autoRemoveCheckbox" checked>
-                        <span class="checkmark"></span>
-                        自動去除 NotebookLM 浮水印
-                    </label>
+                    <div class="style-grid">
+                        <div class="style-card" data-style="古典中國風：使用水墨、書法元素，內容充滿詩意與東方哲學，排版留白多。">
+                            <div class="style-icon">🏮</div>
+                            <h3>古典中國風</h3>
+                            <p>水墨、書法與東方哲學</p>
+                        </div>
+                        <div class="style-card" data-style="理工解析風：大量使用數據圖表、流程圖、科技感藍色調，邏輯嚴密。">
+                            <div class="style-icon">📊</div>
+                            <h3>理工解析風</h3>
+                            <p>數據圖表與嚴密邏輯</p>
+                        </div>
+                        <div class="style-card" data-style="美漫英雄風：大膽的對比色、網點效果、誇張的標題字體，充滿動態感。">
+                            <div class="style-icon">💥</div>
+                            <h3>美漫英雄風</h3>
+                            <p>大膽對比與動態感</p>
+                        </div>
+                        <div class="style-card" data-style="黏土藝術風：3D黏土質感、馬卡龍配色、童趣可愛的元素，適合教育或兒童產品。">
+                            <div class="style-icon">🎨</div>
+                            <h3>黏土藝術風</h3>
+                            <p>3D童趣與馬卡龍色</p>
+                        </div>
+                    </div>
+
+                    <div class="prompt-output" style="margin-top: 32px;">
+                        <h3>生成的提示詞 (複製後貼上至 NotebookLM)</h3>
+                        <textarea id="output-style" class="form-textarea" readonly placeholder="請點擊上方任意風格卡片..."></textarea>
+                        <button class="btn btn-copy" onclick="copyToClipboard('output-style')">複製指令</button>
+                    </div>
                 </div>
 
-                <div class="dropzone-container" id="dropzone">
-                    <input type="file" id="fileInput" accept=".pdf,.pptx,.png,.jpg,.jpeg" multiple style="display: none;">
-                    <div class="dropzone-content">
-                        <div class="upload-icon">📤</div>
-                        <h3>拖曳或點擊上傳 NotebookLM 匯出的 PDF、PPTX 或圖片 (PNG/JPG)</h3>
-                        <p class="support-text">支援多檔案同時處理</p>
+                <!-- TAB 4: GPT 海報攝影 (GPT Poster) -->
+                <div id="tab-poster" class="tool-section" style="display: none;">
+                    <div class="tool-header">
+                        <h1>GPT 海報攝影</h1>
+                        <p>生成完美調教過的 DALL-E 3 海報與攝影生成提示詞</p>
                     </div>
-                    <div class="processing-overlay" id="processingOverlay">
-                        <div class="spinner"></div>
-                        <p>處理中，請稍候...</p>
+
+                    <div class="wizard-container">
+                        <div class="form-group">
+                            <label>海報主題 / 畫面主體</label>
+                            <input type="text" id="poster-subject" class="form-input" placeholder="例如：一杯放在木桌上的熱咖啡、一位正在跑步的運動員...">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>海報類型</label>
+                            <select id="poster-type" class="form-select">
+                                <option value="產品廣告海報 (Product Advertisement)">產品廣告海報</option>
+                                <option value="社群媒體宣傳圖 (Social Media Promo)">社群媒體宣傳</option>
+                                <option value="電影視覺海報 (Cinematic Movie Poster)">電影視覺海報</option>
+                                <option value="活動促銷海報 (Event Promotion)">活動促銷海報</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>視覺風格</label>
+                            <select id="poster-style" class="form-select">
+                                <option value="極簡主義 (Minimalist)、大量留白">極簡主義</option>
+                                <option value="復古底片攝影 (Retro Film Photography)、顆粒感">復古底片</option>
+                                <option value="賽博龐克 (Cyberpunk)、霓虹燈光">賽博龐克</option>
+                                <option value="雜誌封面設計 (Magazine Cover Design)、時尚高級">雜誌封面</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>特殊要求</label>
+                            <input type="text" id="poster-rules" class="form-input" placeholder="例如：主色調為紅色、畫面上不要有英文字...">
+                        </div>
+
+                        <button id="btn-generate-poster" class="btn btn-primary">生成 ChatGPT 繪圖指令</button>
+                    </div>
+
+                    <div class="prompt-output">
+                        <h3>生成的提示詞 (複製後貼上至 ChatGPT)</h3>
+                        <textarea id="output-poster" class="form-textarea" readonly placeholder="點擊上方按鈕生成..."></textarea>
+                        <button class="btn btn-copy" onclick="copyToClipboard('output-poster')">複製指令</button>
                     </div>
                 </div>
 
-                <div class="results-container" id="resultsContainer">
-                    <!-- Results will be injected here -->
-                </div>
             </div>
         </main>
     </div>
