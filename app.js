@@ -359,7 +359,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         
                         // Apply editable text filter (erase text blocks)
                         if (editableTextCheckbox && editableTextCheckbox.checked && layoutBlocks.length > 0) {
-                            eraseTextBlocksCanvas(canvas, ctx, layoutBlocks);
+                            removeTextUsingMaskAndInpaint(canvas, ctx, layoutBlocks);
                             mimeType = 'image/png';
                         }
 
@@ -403,19 +403,18 @@ document.addEventListener('DOMContentLoaded', () => {
                                     const adjustedX = x - (cx * 0.03);
                                     const adjustedY = y - (cy * 0.08);
 
-                                    // 七、textbox 高度太貼 (修正高度)
-                                    const adjustedCy = cy * 1.15;
+                                    const adjustedCy = cy * 1.25;
                                     
                                     // 四、字級估算
                                     let estimatedPt = 20;
                                     if (block.font_size_px) {
-                                        estimatedPt = Math.max(10, Math.round(block.font_size_px * 0.75));
+                                        estimatedPt = block.font_size_px * 0.75;
                                     } else {
                                         const canvasHeight = 720; 
                                         const boxHeightPx = ((ymax - ymin) / 1000) * canvasHeight;
                                         const lineCount = (block.text.match(/\n/g) || []).length + 1;
                                         const singleLinePx = (boxHeightPx / lineCount) * 0.65;
-                                        estimatedPt = Math.max(10, Math.round(singleLinePx * 0.75));
+                                        estimatedPt = singleLinePx * 0.75;
                                     }
 
                                     // 將計算出的 estimatedPt 傳入 (包含 color, align)
@@ -610,26 +609,24 @@ document.addEventListener('DOMContentLoaded', () => {
             },
             contents: [{
                 parts: [
-                    { text: `請分析圖片中的每個文字區塊。
+                    { text: `請分析圖片中的所有文字區塊。
 
 每個區塊請回傳：
 
 {
   "text": "",
   "box": [ymin,xmin,ymax,xmax],
+  "text_color": "#RRGGBB",
+  "shadow_color": "#RRGGBB",
+  "background_color": "#RRGGBB",
   "font_size_px": 32,
-  "font_family_guess": "Arial",
   "font_weight": 700,
-  "text_align": "center",
-  "line_height": 1.2,
-  "letter_spacing": 0,
-  "text_color": "#FFFFFF",
-  "background_color": null,
-  "is_italic": false,
-  "rotation": 0,
-  "opacity": 1.0
+  "font_family_guess": "",
+  "is_bold": true,
+  "text_align": "left"
 }
 
+text_color 必須是真實 HEX 色碼。
 其中 box 是一個包含 4 個整數的陣列 [ymin, xmin, ymax, xmax]， normalized 為 0-1000。
 回傳結果必須嚴格符合 JSON 格式，為一個包含上述物件的 JSON 陣列，不要包含任何其他 markdown 或說明文字。` },
                     {
@@ -693,7 +690,11 @@ document.addEventListener('DOMContentLoaded', () => {
             <a:pPr algn="${pptAlign}"/>
             <a:r>
                 <a:rPr lang="zh-TW" sz="${finalXmlSize}">
-                    <a:solidFill><a:srgbClr val="${hexColor}"/></a:solidFill>
+                    <a:solidFill>
+                        <a:srgbClr val="${hexColor}">
+                            <a:alpha val="92000"/>
+                        </a:srgbClr>
+                    </a:solidFill>
                 </a:rPr>
                 <a:t>${escapedLine}</a:t>
             </a:r>
@@ -837,84 +838,80 @@ ${paragraphs}
         ctx.putImageData(imgData, 0, 0);
     }
 
-    function eraseTextBlocksCanvas(canvas, ctx, layoutBlocks) {
+    function removeTextUsingMaskAndInpaint(canvas, ctx, layoutBlocks) {
+        if (typeof cv === 'undefined') {
+            console.warn('OpenCV.js is not loaded yet');
+            return;
+        }
+
+        const hexToRgb = (hex) => {
+            if (!hex) return {r:0, g:0, b:0};
+            hex = hex.replace('#','');
+            if (hex.length === 3) hex = hex.split('').map(c => c+c).join('');
+            return {
+                r: parseInt(hex.substring(0,2), 16),
+                g: parseInt(hex.substring(2,4), 16),
+                b: parseInt(hex.substring(4,6), 16)
+            };
+        };
+
+        const colorDistance = (r1, g1, b1, r2, g2, b2) => {
+            return Math.sqrt((r1-r2)**2 + (g1-g2)**2 + (b1-b2)**2);
+        };
+
+        let src = cv.imread(canvas);
+        let mask = new cv.Mat.zeros(src.rows, src.cols, cv.CV_8UC1);
+
         layoutBlocks.forEach(block => {
             const box = block.box || block.boundingBox || block.bounding_box || block.coordinates;
-            if (box && Array.isArray(box) && box.length === 4) {
-                const ymin = box[0], xmin = box[1], ymax = box[2], xmax = box[3];
-                const y = (ymin / 1000) * canvas.height;
-                const x = (xmin / 1000) * canvas.width;
-                const h = ((ymax - ymin) / 1000) * canvas.height;
-                const w = ((xmax - xmin) / 1000) * canvas.width;
-                
-                // 擴張邊界框 (Padding)，確保涵蓋所有陰影和反鋸齒
-                const padX = w * 0.05; 
-                const padY = h * 0.05;
-                
-                const finalX = Math.floor(Math.max(0, x - padX));
-                const finalY = Math.floor(Math.max(0, y - padY));
-                const finalW = Math.floor(Math.min(canvas.width - finalX, w + (padX * 2)));
-                const finalH = Math.floor(Math.min(canvas.height - finalY, h + (padY * 2)));
+            if (!box || !Array.isArray(box) || box.length !== 4) return;
+            
+            const ymin = box[0], xmin = box[1], ymax = box[2], xmax = box[3];
+            const y = Math.max(0, (ymin / 1000) * canvas.height);
+            const x = Math.max(0, (xmin / 1000) * canvas.width);
+            const h = Math.min(canvas.height - y, ((ymax - ymin) / 1000) * canvas.height);
+            const w = Math.min(canvas.width - x, ((xmax - xmin) / 1000) * canvas.width);
+            
+            const padX = w * 0.05; 
+            const padY = h * 0.05;
+            
+            const finalX = Math.floor(Math.max(0, x - padX));
+            const finalY = Math.floor(Math.max(0, y - padY));
+            const finalW = Math.floor(Math.min(canvas.width - finalX, w + (padX * 2)));
+            const finalH = Math.floor(Math.min(canvas.height - finalY, h + (padY * 2)));
 
-                if (finalW <= 0 || finalH <= 0) return;
+            if (finalW <= 0 || finalH <= 0) return;
 
-                // 備份原圖，用來疊加保留淡淡原字
-                const originalCanvas = document.createElement('canvas');
-                originalCanvas.width = finalW;
-                originalCanvas.height = finalH;
-                const octx = originalCanvas.getContext('2d');
-                octx.putImageData(ctx.getImageData(finalX, finalY, finalW, finalH), 0, 0);
+            const targetColor = hexToRgb(block.text_color || '#000000');
+            const threshold = 75;
 
-                // 使用 Pattern Fill 進行修補 (Inpainting)
-                const patternCanvas = document.createElement('canvas');
-                patternCanvas.width = finalW;
-                patternCanvas.height = finalH;
-                const pctx = patternCanvas.getContext('2d');
-                
-                // 取文字框上方一小塊來做 pattern fill
-                const sampleHeight = Math.min(20, finalY);
-                if (sampleHeight > 0) {
-                    pctx.drawImage(
-                        canvas,
-                        finalX,
-                        finalY - sampleHeight,
-                        finalW,
-                        sampleHeight,
-                        0,
-                        0,
-                        finalW,
-                        sampleHeight
-                    );
-                } else {
-                    // 若上方無空間，取下方
-                    const bottomSampleHeight = Math.min(20, canvas.height - (finalY + finalH));
-                    if (bottomSampleHeight > 0) {
-                        pctx.drawImage(
-                            canvas,
-                            finalX,
-                            finalY + finalH,
-                            finalW,
-                            bottomSampleHeight,
-                            0,
-                            0,
-                            finalW,
-                            bottomSampleHeight
-                        );
+            for (let row = finalY; row < finalY + finalH; row++) {
+                for (let col = finalX; col < finalX + finalW; col++) {
+                    let pixel = src.ucharPtr(row, col);
+                    let r = pixel[0], g = pixel[1], b = pixel[2];
+                    let dist = colorDistance(r, g, b, targetColor.r, targetColor.g, targetColor.b);
+                    
+                    if (dist < threshold) {
+                        mask.ucharPtr(row, col)[0] = 255;
                     }
                 }
-                
-                if (sampleHeight > 0 || (canvas.height - (finalY + finalH) > 0)) {
-                    const pattern = ctx.createPattern(patternCanvas, 'repeat-y');
-                    ctx.fillStyle = pattern;
-                    ctx.fillRect(finalX, finalY, finalW, finalH);
-                }
-
-                // 將原圖文字淡化疊加回去 (保留 15% opacity 的透明文字層)
-                ctx.globalAlpha = 0.15;
-                ctx.drawImage(originalCanvas, finalX, finalY);
-                ctx.globalAlpha = 1.0;
             }
         });
+
+        // 加入 morphology 擴張以消滅 anti alias 殘影
+        let M = cv.Mat.ones(3, 3, cv.CV_8U);
+        cv.dilate(mask, mask, M, new cv.Point(-1, -1), 1, cv.BORDER_CONSTANT, cv.morphologyDefaultBorderValue());
+
+        // OpenCV Telea Inpainting
+        let dst = new cv.Mat();
+        cv.inpaint(src, mask, dst, 3, cv.INPAINT_TELEA);
+
+        cv.imshow(canvas, dst);
+
+        src.delete();
+        mask.delete();
+        M.delete();
+        dst.delete();
     }
 
     // --- Tab Switching Logic ---
