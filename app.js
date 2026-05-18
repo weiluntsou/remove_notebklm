@@ -209,16 +209,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Process Images using Canvas
     async function processImage(file, ext) {
         let imgBlob = file;
-        if (removeBgCheckbox && removeBgCheckbox.checked) {
-            const pText = document.querySelector('#processingOverlay p');
-            if (pText) pText.innerText = `處理中... (正在為圖片去背)`;
-            try {
-                imgBlob = await imglyRemoveBackground(imgBlob);
-                ext = 'png';
-            } catch (e) {
-                console.error('Background removal failed', e);
-            }
-        }
 
         return new Promise((resolve, reject) => {
             const img = new Image();
@@ -233,6 +223,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 ctx.drawImage(img, 0, 0);
 
                 removeWatermarkFromCanvas(canvas, ctx);
+
+                if (removeBgCheckbox && removeBgCheckbox.checked) {
+                    removeWhiteBackgroundCanvas(canvas, ctx);
+                    ext = 'png'; // Output PNG to preserve transparency
+                }
 
                 // Export
                 const mimeType = ext === 'png' ? 'image/png' : 'image/jpeg';
@@ -293,17 +288,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const ext = relativePath.split('.').pop().toLowerCase();
                 let mimeType = ext === 'png' ? 'image/png' : 'image/jpeg';
                 
-                if (removeBgCheckbox && removeBgCheckbox.checked) {
-                    const pText = document.querySelector('#processingOverlay p');
-                    if (pText) pText.innerText = `處理中... (正在為圖片去背，這可能需要一點時間)`;
-                    try {
-                        imgBlob = await imglyRemoveBackground(imgBlob);
-                        mimeType = 'image/png';
-                    } catch (e) {
-                        console.error('Background removal failed', e);
-                    }
-                }
-                
                 const modifiedImgBlob = await new Promise((resolve) => {
                     const img = new Image();
                     const url = URL.createObjectURL(imgBlob);
@@ -319,6 +303,12 @@ document.addEventListener('DOMContentLoaded', () => {
                             removeWatermarkFromCanvas(canvas, ctx);
                         }
 
+                        // Apply white to transparent filter
+                        if (removeBgCheckbox && removeBgCheckbox.checked) {
+                            removeWhiteBackgroundCanvas(canvas, ctx);
+                            mimeType = 'image/png';
+                        }
+
                         canvas.toBlob((blob) => {
                             URL.revokeObjectURL(url);
                             resolve(blob);
@@ -331,6 +321,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     img.src = url;
                 });
                 
+                // Note: if converted to PNG from JPG, we need to rename it in the zip and update rels,
+                // but PowerPoint can usually handle PNG data inside a .jpeg extension if we just replace the blob.
+                // It's safer to just let JSZip write the PNG bytes to the .jpeg file path. PowerPoint handles it gracefully.
                 zip.file(relativePath, modifiedImgBlob);
             }
         }
@@ -588,6 +581,29 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.fillStyle = `rgb(${bgR}, ${bgG}, ${bgB})`;
             ctx.fillRect(finalX, finalY, finalW, finalH);
         }
+    }
+
+    function removeWhiteBackgroundCanvas(canvas, ctx) {
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imgData.data;
+        
+        // Threshold for distance from pure white (255, 255, 255)
+        const threshold = 60;
+        
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i+1];
+            const b = data[i+2];
+            
+            const dist = Math.sqrt(Math.pow(255 - r, 2) + Math.pow(255 - g, 2) + Math.pow(255 - b, 2));
+            
+            if (dist < threshold) {
+                // Smooth alpha transition to prevent jagged edges/halos
+                const alpha = Math.floor((dist / threshold) * 255);
+                data[i+3] = alpha;
+            }
+        }
+        ctx.putImageData(imgData, 0, 0);
     }
 
     // --- Tab Switching Logic ---
