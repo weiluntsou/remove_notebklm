@@ -398,8 +398,19 @@ document.addEventListener('DOMContentLoaded', () => {
                                     const x = (xmin / 1000) * W;
                                     const cy = ((ymax - ymin) / 1000) * H;
                                     const cx = ((xmax - xmin) / 1000) * W;
+                                    // --- 修改重點：將 Gemini 抓到的 font_size_guess 和 is_bold 傳遞進去 ---
+                                    const shapeXml = createShapeXml(
+                                        maxShapeId++, 
+                                        block.text, 
+                                        x, 
+                                        y, 
+                                        cx, 
+                                        cy, 
+                                        block.color,
+                                        block.is_bold || false, // 確保有預設值
+                                        block.font_size_guess || 20 // 確保有預設值
+                                    );
                                     
-                                    const shapeXml = createShapeXml(maxShapeId++, block.text, x, y, cx, cy, block.color);
                                     const shapeDoc = parser.parseFromString(shapeXml, "application/xml");
                                     const importedNode = slideDoc.importNode(shapeDoc.documentElement, true);
                                     spTree.appendChild(importedNode);
@@ -590,12 +601,16 @@ document.addEventListener('DOMContentLoaded', () => {
             },
             contents: [{
                 parts: [
-                    { text: `Analyze the image and extract all text. Return a JSON array where each element is an object representing a text block.
-Each object must have exactly:
-- "text": The recognized string (preserve Traditional Chinese).
-- "color": The predominant color of the text (e.g. "black", "blue", "red", "white").
-- "box": an array of 4 integers [ymin, xmin, ymax, xmax] normalized to 0-1000.
-Do not include any other markdown, just the JSON array.` },
+                    { text: `請分析圖片並提取所有文字。回傳一個 JSON 陣列，其中的每個元素都是一個代表文字塊的物件。
+
+每個物件必須完全具有以下屬性：
+- "text": 辨識到的字串 (保留繁體中文)。
+- "color": 文字的主要顏色 (例如 "black", "blue", "red", "white", "gray", "green")。
+- "box": 一個包含 4 個整數的陣列 [ymin, xmin, ymax, xmax]， normalized 為 0-1000。
+- "font_size_guess": 預估該文字在原始圖片中的像素大小 (PX)。這是一個預估值，用於決定 PPT 內的字型大小。
+- "is_bold": 布林值，如果該文字區塊看起來是粗體則為 true，否則為 false。
+
+回傳結果必須嚴格符合 JSON 格式，不要包含任何其他 markdown 或說明文字，只回傳 JSON 陣列。` },
                     {
                         inlineData: {
                             mimeType: mimeType,
@@ -625,7 +640,8 @@ Do not include any other markdown, just the JSON array.` },
         }
     }
 
-    function createShapeXml(id, text, x, y, cx, cy, colorStr) {
+    // 注意：我們對這個函式的參數進行了升級，增加傳入 isBold 和 pxFontSizeGuess
+    function createShapeXml(id, text, x, y, cx, cy, colorStr, isBold = false, pxFontSizeGuess = 20) {
         let hexColor = '000000';
         if (colorStr) {
             const lowerColor = colorStr.toLowerCase();
@@ -637,6 +653,15 @@ Do not include any other markdown, just the JSON array.` },
         }
         const escapedText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         
+        // --- 換算字型大小 ---
+        const PT_PER_PX = 0.75; // 近似的 像素 -> 點數 換算常數
+        const ptFontSize = Math.round(pxFontSizeGuess * PT_PER_PX);
+        // PPTX 的單位是 1/100 點
+        const finalXmlSize = ptFontSize * 100;
+
+        // --- 準備粗體屬性字串 ---
+        const boldAttr = isBold ? ' b="1"' : '';
+
         return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sp xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
     <p:nvSpPr>
@@ -657,7 +682,7 @@ Do not include any other markdown, just the JSON array.` },
         <a:lstStyle/>
         <a:p>
             <a:r>
-                <a:rPr lang="zh-TW" sz="2000">
+                <a:rPr lang="zh-TW" sz="${finalXmlSize}"${boldAttr}>
                     <a:solidFill><a:srgbClr val="${hexColor}"/></a:solidFill>
                 </a:rPr>
                 <a:t>${escapedText}</a:t>
@@ -789,8 +814,65 @@ Do not include any other markdown, just the JSON array.` },
                 const h = ((ymax - ymin) / 1000) * canvas.height;
                 const w = ((xmax - xmin) / 1000) * canvas.width;
                 
-                // Clear the rectangle (makes it perfectly transparent)
-                ctx.clearRect(x, y, w, h);
+                // 1. 加上 Padding 擴張邊界框，確保涵蓋邊緣發光/反鋸齒像素
+                const padX = w * 0.08; 
+                const padY = h * 0.08;
+                
+                const finalX = Math.floor(Math.max(0, x - padX));
+                const finalY = Math.floor(Math.max(0, y - padY));
+                const finalW = Math.floor(Math.min(canvas.width - finalX, w + (padX * 2)));
+                const finalH = Math.floor(Math.min(canvas.height - finalY, h + (padY * 2)));
+
+                if (finalW <= 0 || finalH <= 0) return;
+
+                // 2. 判斷預期文字顏色 (對應你原本 createShapeXml 的邏輯)
+                let targetRGB = { r: 0, g: 0, b: 0 }; // 預設為黑色
+                if (block.color) {
+                    const lowerColor = block.color.toLowerCase();
+                    if (lowerColor.includes('blue')) targetRGB = { r: 0, g: 112, b: 192 };
+                    else if (lowerColor.includes('red')) targetRGB = { r: 255, g: 0, b: 0 };
+                    else if (lowerColor.includes('white')) targetRGB = { r: 255, g: 255, b: 255 };
+                    else if (lowerColor.includes('gray') || lowerColor.includes('grey')) targetRGB = { r: 128, g: 128, b: 128 };
+                    else if (lowerColor.includes('green')) targetRGB = { r: 0, g: 176, b: 80 };
+                }
+
+                // 3. 取得該區塊的像素資料
+                const imgData = ctx.getImageData(finalX, finalY, finalW, finalH);
+                const data = imgData.data;
+
+                // 4. 設定色彩寬容度 (Tolerance)
+                const strictTolerance = 80;  // 距離小於此值，視為文字實體，完全清除
+                const softTolerance = 150;   // 介於兩者之間，視為邊緣，漸進式變透明
+
+                // 5. 掃描並過濾像素
+                for (let i = 0; i < data.length; i += 4) {
+                    const r = data[i];
+                    const g = data[i+1];
+                    const b = data[i+2];
+                    const a = data[i+3];
+
+                    if (a === 0) continue; // 已透明的像素直接跳過
+
+                    // 計算當前像素與「目標文字顏色」的 3D 歐幾里得距離
+                    const dist = Math.sqrt(
+                        Math.pow(r - targetRGB.r, 2) + 
+                        Math.pow(g - targetRGB.g, 2) + 
+                        Math.pow(b - targetRGB.b, 2)
+                    );
+
+                    if (dist < strictTolerance) {
+                        // 命中文字核心，設為完全透明
+                        data[i+3] = 0;
+                    } else if (dist < softTolerance) {
+                        // 命中文字邊緣，根據距離計算漸層透明度 (保留背景色的同時消除文字殘影)
+                        const opacityFactor = (dist - strictTolerance) / (softTolerance - strictTolerance);
+                        data[i+3] = Math.floor(a * opacityFactor);
+                    }
+                    // 距離大於 softTolerance 的像素將會完好無缺地保留
+                }
+                
+                // 6. 將修改後的像素資料寫回 Canvas
+                ctx.putImageData(imgData, finalX, finalY);
             }
         });
     }
