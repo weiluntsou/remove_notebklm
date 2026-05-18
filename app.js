@@ -297,7 +297,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     for (let i = 0; i < rels.length; i++) {
                         const target = rels[i].getAttribute('Target');
                         if (target && target.includes('../media/image')) {
-                            const imgPath = `ppt/media/${target.split('/').pop()}`;
+                            const imgPath = `ppt/media/${target.split('/').pop()}`.toLowerCase();
                             if (!imageToSlides[imgPath]) imageToSlides[imgPath] = [];
                             imageToSlides[imgPath].push({ path, index: slideIndex });
                         }
@@ -381,8 +381,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 zip.file(relativePath, modifiedImgBlob);
                 
                 // Inject TextBoxes to slides
-                if (layoutBlocks.length > 0 && imageToSlides[relativePath]) {
-                    for (const slideInfo of imageToSlides[relativePath]) {
+                const lowerRelativePath = relativePath.toLowerCase();
+                if (layoutBlocks.length > 0 && imageToSlides[lowerRelativePath]) {
+                    for (const slideInfo of imageToSlides[lowerRelativePath]) {
                         const slideXmlStr = await zip.file(slideInfo.path).async("string");
                         const slideDoc = parser.parseFromString(slideXmlStr, "application/xml");
                         const spTree = slideDoc.getElementsByTagName("p:spTree")[0];
@@ -390,8 +391,8 @@ document.addEventListener('DOMContentLoaded', () => {
                             layoutBlocks.forEach(block => {
                                 const W = 12192000;
                                 const H = 6858000;
-                                const box = block.box;
-                                if(box && box.length === 4) {
+                                const box = block.box || block.boundingBox || block.bounding_box || block.coordinates;
+                                if(box && Array.isArray(box) && box.length === 4) {
                                     const ymin = box[0], xmin = box[1], ymax = box[2], xmax = box[3];
                                     const y = (ymin / 1000) * H;
                                     const x = (xmin / 1000) * W;
@@ -589,10 +590,10 @@ document.addEventListener('DOMContentLoaded', () => {
             contents: [{
                 parts: [
                     { text: `Analyze the image and extract all text. Return a JSON array where each element is an object representing a text block.
-Each object must have:
+Each object must have exactly:
 - "text": The recognized string (preserve Traditional Chinese).
 - "color": The color of the text, either "black" or "blue".
-- "box": [ymin, xmin, ymax, xmax] normalized to 0-1000.
+- "box": an array of 4 integers [ymin, xmin, ymax, xmax] normalized to 0-1000.
 Do not include any other markdown, just the JSON array.` },
                     {
                         inlineData: {
