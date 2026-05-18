@@ -398,19 +398,23 @@ document.addEventListener('DOMContentLoaded', () => {
                                     const x = (xmin / 1000) * W;
                                     const cy = ((ymax - ymin) / 1000) * H;
                                     const cx = ((xmax - xmin) / 1000) * W;
-                                    // --- 修改重點：將 Gemini 抓到的 font_size_guess 和 is_bold 傳遞進去 ---
-                                    const shapeXml = createShapeXml(
-                                        maxShapeId++, 
-                                        block.text, 
-                                        x, 
-                                        y, 
-                                        cx, 
-                                        cy, 
-                                        block.color,
-                                        block.is_bold || false, // 確保有預設值
-                                        block.font_size_guess || 20 // 確保有預設值
-                                    );
+                                    // --- 數學換算字型大小 ---
+                                    // 1. 取得文字框在畫布上的實際像素高度
+                                    // 假設預設畫布高度約為 720px (16:9)
+                                    const canvasHeight = 720; 
+                                    const boxHeightPx = ((ymax - ymin) / 1000) * canvasHeight;
                                     
+                                    // 2. 判斷這塊文字有幾行 (簡單用字數預估，或抓 Gemini 回傳的換行符號)
+                                    const lineCount = (block.text.match(/\n/g) || []).length + 1;
+                                    
+                                    // 3. 單行高度 (扣除約 20% 的行距)
+                                    const singleLinePx = (boxHeightPx / lineCount) * 0.8;
+                                    
+                                    // 4. 轉換為 Pt (1 px 約 = 0.75 pt)，最低不小於 10 pt
+                                    const estimatedPt = Math.max(10, Math.round(singleLinePx * 0.75));
+
+                                    // 將計算出的 estimatedPt 傳入
+                                    const shapeXml = createShapeXml(maxShapeId++, block.text, x, y, cx, cy, block.color, estimatedPt);
                                     const shapeDoc = parser.parseFromString(shapeXml, "application/xml");
                                     const importedNode = slideDoc.importNode(shapeDoc.documentElement, true);
                                     spTree.appendChild(importedNode);
@@ -640,8 +644,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // 注意：我們對這個函式的參數進行了升級，增加傳入 isBold 和 pxFontSizeGuess
-    function createShapeXml(id, text, x, y, cx, cy, colorStr, isBold = false, pxFontSizeGuess = 20) {
+    function createShapeXml(id, text, x, y, cx, cy, colorStr, ptFontSize = 20) {
         let hexColor = '000000';
         if (colorStr) {
             const lowerColor = colorStr.toLowerCase();
@@ -651,16 +654,24 @@ document.addEventListener('DOMContentLoaded', () => {
             else if (lowerColor.includes('gray') || lowerColor.includes('grey')) hexColor = '808080';
             else if (lowerColor.includes('green')) hexColor = '00B050';
         }
-        const escapedText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        
-        // --- 換算字型大小 ---
-        const PT_PER_PX = 0.75; // 近似的 像素 -> 點數 換算常數
-        const ptFontSize = Math.round(pxFontSizeGuess * PT_PER_PX);
-        // PPTX 的單位是 1/100 點
+
+        // PPTX 字級單位是 1/100 Point
         const finalXmlSize = ptFontSize * 100;
 
-        // --- 準備粗體屬性字串 ---
-        const boldAttr = isBold ? ' b="1"' : '';
+        // 處理多行文字並強制「置中對齊 (algn="ctr")」
+        const paragraphs = text.split('\n').map(line => {
+            const escapedLine = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return `
+        <a:p>
+            <a:pPr algn="ctr"/>
+            <a:r>
+                <a:rPr lang="zh-TW" sz="${finalXmlSize}">
+                    <a:solidFill><a:srgbClr val="${hexColor}"/></a:solidFill>
+                </a:rPr>
+                <a:t>${escapedLine}</a:t>
+            </a:r>
+        </a:p>`;
+        }).join('');
 
         return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sp xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
@@ -680,14 +691,7 @@ document.addEventListener('DOMContentLoaded', () => {
     <p:txBody>
         <a:bodyPr wrap="square" rtlCol="0"><a:spAutoFit/></a:bodyPr>
         <a:lstStyle/>
-        <a:p>
-            <a:r>
-                <a:rPr lang="zh-TW" sz="${finalXmlSize}"${boldAttr}>
-                    <a:solidFill><a:srgbClr val="${hexColor}"/></a:solidFill>
-                </a:rPr>
-                <a:t>${escapedText}</a:t>
-            </a:r>
-        </a:p>
+${paragraphs}
     </p:txBody>
 </p:sp>`;
     }
@@ -841,8 +845,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = imgData.data;
 
                 // 4. 設定色彩寬容度 (Tolerance)
-                const strictTolerance = 80;  // 距離小於此值，視為文字實體，完全清除
-                const softTolerance = 150;   // 介於兩者之間，視為邊緣，漸進式變透明
+                const strictTolerance = 160;  // 距離小於此值，視為文字實體，完全清除
+                const softTolerance = 230;   // 介於兩者之間，視為邊緣，漸進式變透明
 
                 // 5. 掃描並過濾像素
                 for (let i = 0; i < data.length; i += 4) {
