@@ -357,9 +357,9 @@ document.addEventListener('DOMContentLoaded', () => {
                             mimeType = 'image/png';
                         }
                         
-                        // Apply editable text filter (erase black/blue)
-                        if (editableTextCheckbox && editableTextCheckbox.checked) {
-                            removeTextColorsCanvas(canvas, ctx);
+                        // Apply editable text filter (erase text blocks)
+                        if (editableTextCheckbox && editableTextCheckbox.checked && layoutBlocks.length > 0) {
+                            eraseTextBlocksCanvas(canvas, ctx, layoutBlocks);
                             mimeType = 'image/png';
                         }
 
@@ -401,7 +401,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                     
                                     const shapeXml = createShapeXml(maxShapeId++, block.text, x, y, cx, cy, block.color);
                                     const shapeDoc = parser.parseFromString(shapeXml, "application/xml");
-                                    spTree.appendChild(shapeDoc.documentElement.cloneNode(true));
+                                    const importedNode = slideDoc.importNode(shapeDoc.documentElement, true);
+                                    spTree.appendChild(importedNode);
                                 }
                             });
                             zip.file(slideInfo.path, serializer.serializeToString(slideDoc));
@@ -592,7 +593,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     { text: `Analyze the image and extract all text. Return a JSON array where each element is an object representing a text block.
 Each object must have exactly:
 - "text": The recognized string (preserve Traditional Chinese).
-- "color": The color of the text, either "black" or "blue".
+- "color": The predominant color of the text (e.g. "black", "blue", "red", "white").
 - "box": an array of 4 integers [ymin, xmin, ymax, xmax] normalized to 0-1000.
 Do not include any other markdown, just the JSON array.` },
                     {
@@ -625,7 +626,15 @@ Do not include any other markdown, just the JSON array.` },
     }
 
     function createShapeXml(id, text, x, y, cx, cy, colorStr) {
-        const hexColor = colorStr === 'blue' ? '0070C0' : '000000';
+        let hexColor = '000000';
+        if (colorStr) {
+            const lowerColor = colorStr.toLowerCase();
+            if (lowerColor.includes('blue')) hexColor = '0070C0';
+            else if (lowerColor.includes('red')) hexColor = 'FF0000';
+            else if (lowerColor.includes('white')) hexColor = 'FFFFFF';
+            else if (lowerColor.includes('gray') || lowerColor.includes('grey')) hexColor = '808080';
+            else if (lowerColor.includes('green')) hexColor = '00B050';
+        }
         const escapedText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         
         return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -770,25 +779,20 @@ Do not include any other markdown, just the JSON array.` },
         ctx.putImageData(imgData, 0, 0);
     }
 
-    function removeTextColorsCanvas(canvas, ctx) {
-        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const data = imgData.data;
-        
-        for (let i = 0; i < data.length; i += 4) {
-            const r = data[i];
-            const g = data[i+1];
-            const b = data[i+2];
-            const a = data[i+3];
-            if (a === 0) continue;
-            
-            // Black / Dark Gray
-            if (r < 80 && g < 80 && b < 80) {
-                data[i+3] = 0;
-            } else if (b > 100 && r < b - 40 && g < b - 40) { // Blue
-                data[i+3] = 0;
+    function eraseTextBlocksCanvas(canvas, ctx, layoutBlocks) {
+        layoutBlocks.forEach(block => {
+            const box = block.box || block.boundingBox || block.bounding_box || block.coordinates;
+            if (box && Array.isArray(box) && box.length === 4) {
+                const ymin = box[0], xmin = box[1], ymax = box[2], xmax = box[3];
+                const y = (ymin / 1000) * canvas.height;
+                const x = (xmin / 1000) * canvas.width;
+                const h = ((ymax - ymin) / 1000) * canvas.height;
+                const w = ((xmax - xmin) / 1000) * canvas.width;
+                
+                // Clear the rectangle (makes it perfectly transparent)
+                ctx.clearRect(x, y, w, h);
             }
-        }
-        ctx.putImageData(imgData, 0, 0);
+        });
     }
 
     // --- Tab Switching Logic ---
