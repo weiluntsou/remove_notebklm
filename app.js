@@ -10,8 +10,87 @@ document.addEventListener('DOMContentLoaded', () => {
     const dropzone = document.getElementById('dropzone');
     const fileInput = document.getElementById('fileInput');
     const autoRemoveCheckbox = document.getElementById('autoRemoveCheckbox');
+    const ocrCheckbox = document.getElementById('ocrCheckbox');
+    const apiKeyContainer = document.getElementById('apiKeyContainer');
+    const googleApiKeyInput = document.getElementById('googleApiKeyInput');
+    const geminiModelSelect = document.getElementById('geminiModelSelect');
+    const btnRefreshModels = document.getElementById('btnRefreshModels');
     const processingOverlay = document.getElementById('processingOverlay');
     const resultsContainer = document.getElementById('resultsContainer');
+
+    // Toggle API Key input visibility
+    ocrCheckbox.addEventListener('change', () => {
+        apiKeyContainer.style.display = ocrCheckbox.checked ? 'block' : 'none';
+    });
+
+    // Load saved API Key and Model
+    const savedApiKey = localStorage.getItem('googleApiKey');
+    if (savedApiKey) {
+        googleApiKeyInput.value = savedApiKey;
+    }
+    
+    const savedModel = localStorage.getItem('geminiModel');
+    if (savedModel) {
+        geminiModelSelect.value = savedModel;
+    }
+
+    googleApiKeyInput.addEventListener('input', () => {
+        localStorage.setItem('googleApiKey', googleApiKeyInput.value);
+    });
+
+    geminiModelSelect.addEventListener('change', () => {
+        localStorage.setItem('geminiModel', geminiModelSelect.value);
+    });
+
+    btnRefreshModels.addEventListener('click', async () => {
+        const apiKey = googleApiKeyInput.value.trim();
+        if (!apiKey) {
+            alert('請先輸入 Google API Key 再重新整理模型列表。');
+            return;
+        }
+
+        btnRefreshModels.disabled = true;
+        btnRefreshModels.textContent = '⏳';
+
+        try {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+            const data = await response.json();
+            
+            if (data.error) {
+                alert(`獲取模型失敗: ${data.error.message}`);
+                return;
+            }
+
+            if (data.models && data.models.length > 0) {
+                const currentVal = geminiModelSelect.value;
+                geminiModelSelect.innerHTML = '';
+                
+                const geminiModels = data.models.filter(m => m.name.includes('gemini') && m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'));
+                
+                geminiModels.forEach(model => {
+                    const option = document.createElement('option');
+                    const modelId = model.name.replace('models/', '');
+                    option.value = modelId;
+                    option.textContent = `${model.displayName || modelId} (${modelId})`;
+                    geminiModelSelect.appendChild(option);
+                });
+
+                if (Array.from(geminiModelSelect.options).some(opt => opt.value === currentVal)) {
+                    geminiModelSelect.value = currentVal;
+                } else if (savedModel && Array.from(geminiModelSelect.options).some(opt => opt.value === savedModel)) {
+                    geminiModelSelect.value = savedModel;
+                }
+                
+                alert('模型列表已更新！');
+            }
+        } catch (error) {
+            console.error('Fetch models error:', error);
+            alert('連線失敗，請檢查網路狀態或 API Key 是否正確。');
+        } finally {
+            btnRefreshModels.disabled = false;
+            btnRefreshModels.textContent = '🔄';
+        }
+    });
 
     // Drag and Drop Events
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
@@ -55,6 +134,11 @@ document.addEventListener('DOMContentLoaded', () => {
     async function handleFiles(files) {
         if (!autoRemoveCheckbox.checked) {
             alert('請勾選「自動去除 NotebookLM 浮水印」以繼續。');
+            return;
+        }
+
+        if (ocrCheckbox.checked && !googleApiKeyInput.value.trim()) {
+            alert('請輸入 Google API Key 才能啟用圖片文字辨識。');
             return;
         }
 
@@ -227,7 +311,170 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        // 3. OCR and Notes Injection
+        if (ocrCheckbox.checked && googleApiKeyInput.value.trim()) {
+            const apiKey = googleApiKeyInput.value.trim();
+            const selectedModel = geminiModelSelect.value || 'gemini-1.5-flash';
+            const slideRegex = /^ppt\/slides\/slide(\d+)\.xml$/;
+            
+            let contentTypesXml = await zip.file('[Content_Types].xml').async('string');
+            let contentTypesDoc = parser.parseFromString(contentTypesXml, "application/xml");
+            
+            for (const relativePath in zip.files) {
+                const slideMatch = relativePath.match(slideRegex);
+                if (slideMatch) {
+                    const slideIndex = slideMatch[1];
+                    const relsPath = `ppt/slides/_rels/slide${slideIndex}.xml.rels`;
+                    let imagePath = null;
+                    
+                    if (zip.file(relsPath)) {
+                        const relsXml = await zip.file(relsPath).async('string');
+                        const relsDoc = parser.parseFromString(relsXml, "application/xml");
+                        const rels = relsDoc.getElementsByTagName('Relationship');
+                        for (let i = 0; i < rels.length; i++) {
+                            const target = rels[i].getAttribute('Target');
+                            if (target && target.includes('../media/image')) {
+                                imagePath = `ppt/media/${target.split('/').pop()}`;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (imagePath && zip.file(imagePath)) {
+                        const imgBlob = await zip.file(imagePath).async('blob');
+                        const ext = imagePath.split('.').pop().toLowerCase();
+                        const mimeType = ext === 'png' ? 'image/png' : 'image/jpeg';
+                        const base64 = await blobToBase64(imgBlob);
+                        
+                        const pText = document.querySelector('#processingOverlay p');
+                        if (pText) pText.innerText = `處理中... (正在辨識第 ${slideIndex} 頁文字)`;
+                        
+                        const text = await performOCR(base64, mimeType, apiKey, selectedModel);
+                        
+                        if (text) {
+                            const notesSlidePath = `ppt/notesSlides/notesSlide${slideIndex}.xml`;
+                            const escapedText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            const paragraphs = escapedText.split('\n').map(line => `
+                                <a:p>
+                                    <a:r>
+                                        <a:t>${line}</a:t>
+                                    </a:r>
+                                </a:p>
+                            `).join('');
+
+                            const notesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:notes xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+  <p:cSld>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr/>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="2" name=""/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>
+        <p:spPr/>
+        <p:txBody>
+          <a:bodyPr/><a:lstStyle/>
+          ${paragraphs}
+        </p:txBody>
+      </p:sp>
+    </p:spTree>
+  </p:cSld>
+</p:notes>`;
+                            zip.file(notesSlidePath, notesXml);
+                            
+                            if (!contentTypesXml.includes(`PartName="/${notesSlidePath}"`)) {
+                                const overrideNode = contentTypesDoc.createElementNS(contentTypesDoc.documentElement.namespaceURI || "http://schemas.openxmlformats.org/package/2006/content-types", 'Override');
+                                overrideNode.setAttribute('PartName', `/${notesSlidePath}`);
+                                overrideNode.setAttribute('ContentType', 'application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml');
+                                contentTypesDoc.documentElement.appendChild(overrideNode);
+                            }
+                            
+                            if (zip.file(relsPath)) {
+                                const relsXml = await zip.file(relsPath).async('string');
+                                const relsDoc = parser.parseFromString(relsXml, "application/xml");
+                                
+                                let hasNotesRel = false;
+                                const rels = relsDoc.getElementsByTagName('Relationship');
+                                let maxId = 0;
+                                for (let i = 0; i < rels.length; i++) {
+                                    const type = rels[i].getAttribute('Type');
+                                    const id = rels[i].getAttribute('Id');
+                                    if (id && id.startsWith('rId')) {
+                                        const num = parseInt(id.replace('rId', ''));
+                                        if (num > maxId) maxId = num;
+                                    }
+                                    if (type === 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide') {
+                                        hasNotesRel = true;
+                                        break;
+                                    }
+                                }
+                                
+                                if (!hasNotesRel) {
+                                    const newRel = relsDoc.createElementNS(relsDoc.documentElement.namespaceURI || "http://schemas.openxmlformats.org/package/2006/relationships", 'Relationship');
+                                    newRel.setAttribute('Id', `rId${maxId + 1}`);
+                                    newRel.setAttribute('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide');
+                                    newRel.setAttribute('Target', `../notesSlides/notesSlide${slideIndex}.xml`);
+                                    relsDoc.documentElement.appendChild(newRel);
+                                    
+                                    const newRelsXml = serializer.serializeToString(relsDoc);
+                                    zip.file(relsPath, newRelsXml);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            const finalContentTypesXml = serializer.serializeToString(contentTypesDoc);
+            zip.file('[Content_Types].xml', finalContentTypesXml);
+            const pText = document.querySelector('#processingOverlay p');
+            if (pText) pText.innerText = `處理中，請稍候...`;
+        }
+
         return await zip.generateAsync({ type: "blob" });
+    }
+
+    // --- OCR Helpers ---
+    function blobToBase64(blob) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+        });
+    }
+
+    async function performOCR(base64Image, mimeType, apiKey, modelName = 'gemini-1.5-flash') {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+        const requestBody = {
+            contents: [{
+                parts: [
+                    { text: "請辨識圖片中的所有文字，並直接輸出辨識到的文字，不要加上任何其他說明與格式。如果沒有文字，請輸出空字串。" },
+                    {
+                        inlineData: {
+                            mimeType: mimeType,
+                            data: base64Image
+                        }
+                    }
+                ]
+            }]
+        };
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            });
+            const data = await response.json();
+            if (data.error) {
+                console.error('Gemini API Error:', data.error);
+                return '';
+            }
+            return data.candidates[0]?.content?.parts[0]?.text || '';
+        } catch (e) {
+            console.error('OCR Error:', e);
+            return '';
+        }
     }
 
     // UI Helper to show result

@@ -79,6 +79,24 @@
                             <span class="checkmark"></span>
                             自動去除 NotebookLM 浮水印
                         </label>
+                        <label class="checkbox-container" style="margin-top: 12px;">
+                            <input type="checkbox" id="ocrCheckbox">
+                            <span class="checkmark"></span>
+                            啟用圖片文字辨識並寫入備忘錄 (需 Google API Key)
+                        </label>
+                        <div id="apiKeyContainer" style="display: none; margin-top: 12px; padding-left: 32px;">
+                            <div style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
+                                <select id="geminiModelSelect" class="form-select" style="flex: 1;">
+                                    <option value="gemini-1.5-flash">Gemini 1.5 Flash (速度快、免費額度高)</option>
+                                    <option value="gemini-2.5-flash">Gemini 2.5 Flash (最新一代快速模型)</option>
+                                    <option value="gemini-1.5-pro">Gemini 1.5 Pro (精確度高，適合複雜版面)</option>
+                                    <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                                    <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                                </select>
+                                <button id="btnRefreshModels" class="btn btn-login" type="button" title="重新取得可用模型" style="padding: 12px; display: flex; align-items: center; justify-content: center;">🔄</button>
+                            </div>
+                            <input type="password" id="googleApiKeyInput" class="form-input" placeholder="請輸入 Google API / Gemini API Key" style="width: 100%;">
+                        </div>
                     </div>
 
                     <div class="dropzone-container" id="dropzone">
