@@ -408,7 +408,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     const lineCount = (block.text.match(/\n/g) || []).length + 1;
                                     
                                     // 3. 單行高度 (扣除約 20% 的行距)
-                                    const singleLinePx = (boxHeightPx / lineCount) * 0.8;
+                                    const singleLinePx = (boxHeightPx / lineCount) * 0.65;
                                     
                                     // 4. 轉換為 Pt (1 px 約 = 0.75 pt)，最低不小於 10 pt
                                     const estimatedPt = Math.max(10, Math.round(singleLinePx * 0.75));
@@ -689,7 +689,9 @@ document.addEventListener('DOMContentLoaded', () => {
         <a:noFill/>
     </p:spPr>
     <p:txBody>
-        <a:bodyPr wrap="square" rtlCol="0"><a:spAutoFit/></a:bodyPr>
+        <a:bodyPr wrap="none" lIns="0" tIns="0" rIns="0" bIns="0" rtlCol="0">
+            <a:spAutoFit/>
+        </a:bodyPr>
         <a:lstStyle/>
 ${paragraphs}
     </p:txBody>
@@ -818,9 +820,9 @@ ${paragraphs}
                 const h = ((ymax - ymin) / 1000) * canvas.height;
                 const w = ((xmax - xmin) / 1000) * canvas.width;
                 
-                // 1. 加上 Padding 擴張邊界框，確保涵蓋邊緣發光/反鋸齒像素
-                const padX = w * 0.08; 
-                const padY = h * 0.08;
+                // 擴張邊界框 (Padding 10%)，確保涵蓋所有陰影和反鋸齒
+                const padX = w * 0.1; 
+                const padY = h * 0.1;
                 
                 const finalX = Math.floor(Math.max(0, x - padX));
                 const finalY = Math.floor(Math.max(0, y - padY));
@@ -829,53 +831,40 @@ ${paragraphs}
 
                 if (finalW <= 0 || finalH <= 0) return;
 
-                // 2. 判斷預期文字顏色 (對應你原本 createShapeXml 的邏輯)
-                let targetRGB = { r: 0, g: 0, b: 0 }; // 預設為黑色
-                if (block.color) {
-                    const lowerColor = block.color.toLowerCase();
-                    if (lowerColor.includes('blue')) targetRGB = { r: 0, g: 112, b: 192 };
-                    else if (lowerColor.includes('red')) targetRGB = { r: 255, g: 0, b: 0 };
-                    else if (lowerColor.includes('white')) targetRGB = { r: 255, g: 255, b: 255 };
-                    else if (lowerColor.includes('gray') || lowerColor.includes('grey')) targetRGB = { r: 128, g: 128, b: 128 };
-                    else if (lowerColor.includes('green')) targetRGB = { r: 0, g: 176, b: 80 };
-                }
-
-                // 3. 取得該區塊的像素資料
                 const imgData = ctx.getImageData(finalX, finalY, finalW, finalH);
                 const data = imgData.data;
 
-                // 4. 設定色彩寬容度 (Tolerance)
-                const strictTolerance = 160;  // 距離小於此值，視為文字實體，完全清除
-                const softTolerance = 230;   // 介於兩者之間，視為邊緣，漸進式變透明
-
-                // 5. 掃描並過濾像素
-                for (let i = 0; i < data.length; i += 4) {
-                    const r = data[i];
-                    const g = data[i+1];
-                    const b = data[i+2];
-                    const a = data[i+3];
-
-                    if (a === 0) continue; // 已透明的像素直接跳過
-
-                    // 計算當前像素與「目標文字顏色」的 3D 歐幾里得距離
-                    const dist = Math.sqrt(
-                        Math.pow(r - targetRGB.r, 2) + 
-                        Math.pow(g - targetRGB.g, 2) + 
-                        Math.pow(b - targetRGB.b, 2)
-                    );
-
-                    if (dist < strictTolerance) {
-                        // 命中文字核心，設為完全透明
-                        data[i+3] = 0;
-                    } else if (dist < softTolerance) {
-                        // 命中文字邊緣，根據距離計算漸層透明度 (保留背景色的同時消除文字殘影)
-                        const opacityFactor = (dist - strictTolerance) / (softTolerance - strictTolerance);
-                        data[i+3] = Math.floor(a * opacityFactor);
+                // RGB 轉 HSL (色相, 飽和度, 明度) 的輔助函式
+                const rgbToHsl = (r, g, b) => {
+                    r /= 255; g /= 255; b /= 255;
+                    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+                    let h, s, l = (max + min) / 2;
+                    if (max === min) { h = s = 0; } 
+                    else {
+                        const d = max - min;
+                        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
                     }
-                    // 距離大於 softTolerance 的像素將會完好無缺地保留
+                    return [h, s, l];
+                };
+
+                for (let i = 0; i < data.length; i += 4) {
+                    const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
+                    if (a === 0) continue;
+
+                    const [h, s, l] = rgbToHsl(r, g, b);
+
+                    // 【核心邏輯】：
+                    // 如果飽和度大於 15% (s > 0.15) 且 明度適中 (不是極黑或極白)，
+                    // 代表這是彩色圓圈的像素，予以保留。
+                    // 否則 (黑字、灰陰影、白底、深藍色標題)，全部變成透明！
+                    if (s > 0.15 && l > 0.2 && l < 0.9) {
+                        // 保留彩色圖形
+                    } else {
+                        // 徹底清除文字、陰影與殘留背景
+                        data[i+3] = 0;
+                    }
                 }
                 
-                // 6. 將修改後的像素資料寫回 Canvas
                 ctx.putImageData(imgData, finalX, finalY);
             }
         });
