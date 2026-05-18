@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const dropzone = document.getElementById('dropzone');
     const fileInput = document.getElementById('fileInput');
     const autoRemoveCheckbox = document.getElementById('autoRemoveCheckbox');
+    const removeBgCheckbox = document.getElementById('removeBgCheckbox');
     const ocrCheckbox = document.getElementById('ocrCheckbox');
     const apiKeyContainer = document.getElementById('apiKeyContainer');
     const googleApiKeyInput = document.getElementById('googleApiKeyInput');
@@ -206,10 +207,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Process Images using Canvas
-    function processImage(file, ext) {
+    async function processImage(file, ext) {
+        let imgBlob = file;
+        if (removeBgCheckbox && removeBgCheckbox.checked) {
+            const pText = document.querySelector('#processingOverlay p');
+            if (pText) pText.innerText = `處理中... (正在為圖片去背)`;
+            try {
+                imgBlob = await imglyRemoveBackground(imgBlob);
+                ext = 'png';
+            } catch (e) {
+                console.error('Background removal failed', e);
+            }
+        }
+
         return new Promise((resolve, reject) => {
             const img = new Image();
-            const url = URL.createObjectURL(file);
+            const url = URL.createObjectURL(imgBlob);
             img.onload = () => {
                 const canvas = document.createElement('canvas');
                 canvas.width = img.width;
@@ -276,9 +289,20 @@ document.addEventListener('DOMContentLoaded', () => {
         
         for (const relativePath in zip.files) {
             if (mediaRegex.test(relativePath)) {
-                const imgBlob = await zip.file(relativePath).async("blob");
+                let imgBlob = await zip.file(relativePath).async("blob");
                 const ext = relativePath.split('.').pop().toLowerCase();
-                const mimeType = ext === 'png' ? 'image/png' : 'image/jpeg';
+                let mimeType = ext === 'png' ? 'image/png' : 'image/jpeg';
+                
+                if (removeBgCheckbox && removeBgCheckbox.checked) {
+                    const pText = document.querySelector('#processingOverlay p');
+                    if (pText) pText.innerText = `處理中... (正在為圖片去背，這可能需要一點時間)`;
+                    try {
+                        imgBlob = await imglyRemoveBackground(imgBlob);
+                        mimeType = 'image/png';
+                    } catch (e) {
+                        console.error('Background removal failed', e);
+                    }
+                }
                 
                 const modifiedImgBlob = await new Promise((resolve) => {
                     const img = new Image();
