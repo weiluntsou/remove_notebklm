@@ -398,23 +398,28 @@ document.addEventListener('DOMContentLoaded', () => {
                                     const x = (xmin / 1000) * W;
                                     const cy = ((ymax - ymin) / 1000) * H;
                                     const cx = ((xmax - xmin) / 1000) * W;
-                                    // --- 數學換算字型大小 ---
-                                    // 1. 取得文字框在畫布上的實際像素高度
-                                    // 假設預設畫布高度約為 720px (16:9)
-                                    const canvasHeight = 720; 
-                                    const boxHeightPx = ((ymax - ymin) / 1000) * canvasHeight;
                                     
-                                    // 2. 判斷這塊文字有幾行 (簡單用字數預估，或抓 Gemini 回傳的換行符號)
-                                    const lineCount = (block.text.match(/\n/g) || []).length + 1;
-                                    
-                                    // 3. 單行高度 (扣除約 20% 的行距)
-                                    const singleLinePx = (boxHeightPx / lineCount) * 0.65;
-                                    
-                                    // 4. 轉換為 Pt (1 px 約 = 0.75 pt)，最低不小於 10 pt
-                                    const estimatedPt = Math.max(10, Math.round(singleLinePx * 0.75));
+                                    // 八、文字位置偏移問題 (修正位置飄移)
+                                    const adjustedX = x - (cx * 0.03);
+                                    const adjustedY = y - (cy * 0.08);
 
-                                    // 將計算出的 estimatedPt 傳入
-                                    const shapeXml = createShapeXml(maxShapeId++, block.text, x, y, cx, cy, block.color, estimatedPt);
+                                    // 七、textbox 高度太貼 (修正高度)
+                                    const adjustedCy = cy * 1.15;
+                                    
+                                    // 四、字級估算
+                                    let estimatedPt = 20;
+                                    if (block.font_size_px) {
+                                        estimatedPt = Math.max(10, Math.round(block.font_size_px * 0.75));
+                                    } else {
+                                        const canvasHeight = 720; 
+                                        const boxHeightPx = ((ymax - ymin) / 1000) * canvasHeight;
+                                        const lineCount = (block.text.match(/\n/g) || []).length + 1;
+                                        const singleLinePx = (boxHeightPx / lineCount) * 0.65;
+                                        estimatedPt = Math.max(10, Math.round(singleLinePx * 0.75));
+                                    }
+
+                                    // 將計算出的 estimatedPt 傳入 (包含 color, align)
+                                    const shapeXml = createShapeXml(maxShapeId++, block.text, adjustedX, adjustedY, cx, adjustedCy, block.text_color || block.color, estimatedPt, block.text_align);
                                     const shapeDoc = parser.parseFromString(shapeXml, "application/xml");
                                     const importedNode = slideDoc.importNode(shapeDoc.documentElement, true);
                                     spTree.appendChild(importedNode);
@@ -605,16 +610,28 @@ document.addEventListener('DOMContentLoaded', () => {
             },
             contents: [{
                 parts: [
-                    { text: `請分析圖片並提取所有文字。回傳一個 JSON 陣列，其中的每個元素都是一個代表文字塊的物件。
+                    { text: `請分析圖片中的每個文字區塊。
 
-每個物件必須完全具有以下屬性：
-- "text": 辨識到的字串 (保留繁體中文)。
-- "color": 文字的主要顏色 (例如 "black", "blue", "red", "white", "gray", "green")。
-- "box": 一個包含 4 個整數的陣列 [ymin, xmin, ymax, xmax]， normalized 為 0-1000。
-- "font_size_guess": 預估該文字在原始圖片中的像素大小 (PX)。這是一個預估值，用於決定 PPT 內的字型大小。
-- "is_bold": 布林值，如果該文字區塊看起來是粗體則為 true，否則為 false。
+每個區塊請回傳：
 
-回傳結果必須嚴格符合 JSON 格式，不要包含任何其他 markdown 或說明文字，只回傳 JSON 陣列。` },
+{
+  "text": "",
+  "box": [ymin,xmin,ymax,xmax],
+  "font_size_px": 32,
+  "font_family_guess": "Arial",
+  "font_weight": 700,
+  "text_align": "center",
+  "line_height": 1.2,
+  "letter_spacing": 0,
+  "text_color": "#FFFFFF",
+  "background_color": null,
+  "is_italic": false,
+  "rotation": 0,
+  "opacity": 1.0
+}
+
+其中 box 是一個包含 4 個整數的陣列 [ymin, xmin, ymax, xmax]， normalized 為 0-1000。
+回傳結果必須嚴格符合 JSON 格式，為一個包含上述物件的 JSON 陣列，不要包含任何其他 markdown 或說明文字。` },
                     {
                         inlineData: {
                             mimeType: mimeType,
@@ -644,9 +661,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function createShapeXml(id, text, x, y, cx, cy, colorStr, ptFontSize = 20) {
+    function createShapeXml(id, text, x, y, cx, cy, colorStr, ptFontSize = 20, align = 'center') {
         let hexColor = '000000';
-        if (colorStr) {
+        if (colorStr && colorStr.startsWith('#')) {
+            hexColor = colorStr.substring(1);
+        } else if (colorStr) {
             const lowerColor = colorStr.toLowerCase();
             if (lowerColor.includes('blue')) hexColor = '0070C0';
             else if (lowerColor.includes('red')) hexColor = 'FF0000';
@@ -655,15 +674,23 @@ document.addEventListener('DOMContentLoaded', () => {
             else if (lowerColor.includes('green')) hexColor = '00B050';
         }
 
+        const alignMap = {
+            left: 'l',
+            center: 'ctr',
+            right: 'r',
+            justify: 'just'
+        };
+        const pptAlign = alignMap[align] || 'ctr';
+
         // PPTX 字級單位是 1/100 Point
         const finalXmlSize = ptFontSize * 100;
 
-        // 處理多行文字並強制「置中對齊 (algn="ctr")」
+        // 處理多行文字並支援對齊
         const paragraphs = text.split('\n').map(line => {
             const escapedLine = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             return `
         <a:p>
-            <a:pPr algn="ctr"/>
+            <a:pPr algn="${pptAlign}"/>
             <a:r>
                 <a:rPr lang="zh-TW" sz="${finalXmlSize}">
                     <a:solidFill><a:srgbClr val="${hexColor}"/></a:solidFill>
@@ -689,8 +716,8 @@ document.addEventListener('DOMContentLoaded', () => {
         <a:noFill/>
     </p:spPr>
     <p:txBody>
-        <a:bodyPr wrap="none" lIns="0" tIns="0" rIns="0" bIns="0" rtlCol="0">
-            <a:spAutoFit/>
+        <a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0" rtlCol="0">
+            <a:noAutofit/>
         </a:bodyPr>
         <a:lstStyle/>
 ${paragraphs}
@@ -820,9 +847,9 @@ ${paragraphs}
                 const h = ((ymax - ymin) / 1000) * canvas.height;
                 const w = ((xmax - xmin) / 1000) * canvas.width;
                 
-                // 擴張邊界框 (Padding 10%)，確保涵蓋所有陰影和反鋸齒
-                const padX = w * 0.1; 
-                const padY = h * 0.1;
+                // 擴張邊界框 (Padding)，確保涵蓋所有陰影和反鋸齒
+                const padX = w * 0.05; 
+                const padY = h * 0.05;
                 
                 const finalX = Math.floor(Math.max(0, x - padX));
                 const finalY = Math.floor(Math.max(0, y - padY));
@@ -831,41 +858,61 @@ ${paragraphs}
 
                 if (finalW <= 0 || finalH <= 0) return;
 
-                const imgData = ctx.getImageData(finalX, finalY, finalW, finalH);
-                const data = imgData.data;
+                // 備份原圖，用來疊加保留淡淡原字
+                const originalCanvas = document.createElement('canvas');
+                originalCanvas.width = finalW;
+                originalCanvas.height = finalH;
+                const octx = originalCanvas.getContext('2d');
+                octx.putImageData(ctx.getImageData(finalX, finalY, finalW, finalH), 0, 0);
 
-                // RGB 轉 HSL (色相, 飽和度, 明度) 的輔助函式
-                const rgbToHsl = (r, g, b) => {
-                    r /= 255; g /= 255; b /= 255;
-                    const max = Math.max(r, g, b), min = Math.min(r, g, b);
-                    let h, s, l = (max + min) / 2;
-                    if (max === min) { h = s = 0; } 
-                    else {
-                        const d = max - min;
-                        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-                    }
-                    return [h, s, l];
-                };
-
-                for (let i = 0; i < data.length; i += 4) {
-                    const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
-                    if (a === 0) continue;
-
-                    const [h, s, l] = rgbToHsl(r, g, b);
-
-                    // 【核心邏輯】：
-                    // 如果飽和度大於 15% (s > 0.15) 且 明度適中 (不是極黑或極白)，
-                    // 代表這是彩色圓圈的像素，予以保留。
-                    // 否則 (黑字、灰陰影、白底、深藍色標題)，全部變成透明！
-                    if (s > 0.15 && l > 0.2 && l < 0.9) {
-                        // 保留彩色圖形
-                    } else {
-                        // 徹底清除文字、陰影與殘留背景
-                        data[i+3] = 0;
+                // 使用 Pattern Fill 進行修補 (Inpainting)
+                const patternCanvas = document.createElement('canvas');
+                patternCanvas.width = finalW;
+                patternCanvas.height = finalH;
+                const pctx = patternCanvas.getContext('2d');
+                
+                // 取文字框上方一小塊來做 pattern fill
+                const sampleHeight = Math.min(20, finalY);
+                if (sampleHeight > 0) {
+                    pctx.drawImage(
+                        canvas,
+                        finalX,
+                        finalY - sampleHeight,
+                        finalW,
+                        sampleHeight,
+                        0,
+                        0,
+                        finalW,
+                        sampleHeight
+                    );
+                } else {
+                    // 若上方無空間，取下方
+                    const bottomSampleHeight = Math.min(20, canvas.height - (finalY + finalH));
+                    if (bottomSampleHeight > 0) {
+                        pctx.drawImage(
+                            canvas,
+                            finalX,
+                            finalY + finalH,
+                            finalW,
+                            bottomSampleHeight,
+                            0,
+                            0,
+                            finalW,
+                            bottomSampleHeight
+                        );
                     }
                 }
                 
-                ctx.putImageData(imgData, finalX, finalY);
+                if (sampleHeight > 0 || (canvas.height - (finalY + finalH) > 0)) {
+                    const pattern = ctx.createPattern(patternCanvas, 'repeat-y');
+                    ctx.fillStyle = pattern;
+                    ctx.fillRect(finalX, finalY, finalW, finalH);
+                }
+
+                // 將原圖文字淡化疊加回去 (保留 15% opacity 的透明文字層)
+                ctx.globalAlpha = 0.15;
+                ctx.drawImage(originalCanvas, finalX, finalY);
+                ctx.globalAlpha = 1.0;
             }
         });
     }
