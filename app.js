@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const autoRemoveCheckbox = document.getElementById('autoRemoveCheckbox');
     const removeBgCheckbox = document.getElementById('removeBgCheckbox');
     const ocrCheckbox = document.getElementById('ocrCheckbox');
+    const editableTextCheckbox = document.getElementById('editableTextCheckbox');
     const apiKeyContainer = document.getElementById('apiKeyContainer');
     const googleApiKeyInput = document.getElementById('googleApiKeyInput');
     const geminiModelSelect = document.getElementById('geminiModelSelect');
@@ -20,9 +21,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const resultsContainer = document.getElementById('resultsContainer');
 
     // Toggle API Key input visibility
-    ocrCheckbox.addEventListener('change', () => {
-        apiKeyContainer.style.display = ocrCheckbox.checked ? 'block' : 'none';
-    });
+    const toggleApiKeyVisibility = () => {
+        apiKeyContainer.style.display = (ocrCheckbox.checked || editableTextCheckbox.checked) ? 'block' : 'none';
+    };
+    ocrCheckbox.addEventListener('change', toggleApiKeyVisibility);
+    if (editableTextCheckbox) editableTextCheckbox.addEventListener('change', toggleApiKeyVisibility);
 
     // Load saved API Key and Model
     const savedApiKey = localStorage.getItem('googleApiKey');
@@ -138,8 +141,9 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        if (ocrCheckbox.checked && !googleApiKeyInput.value.trim()) {
-            alert('請輸入 Google API Key 才能啟用圖片文字辨識。');
+        const needsApi = ocrCheckbox.checked || (editableTextCheckbox && editableTextCheckbox.checked);
+        if (needsApi && !googleApiKeyInput.value.trim()) {
+            alert('請輸入 Google API Key 才能啟用此功能。');
             return;
         }
 
@@ -278,15 +282,59 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        // 1.5 Map images to slides
+        const imageToSlides = {};
+        const slideRegex = /^ppt\/slides\/slide(\d+)\.xml$/;
+        for (const path in zip.files) {
+            const match = path.match(slideRegex);
+            if (match) {
+                const slideIndex = match[1];
+                const relsPath = `ppt/slides/_rels/slide${slideIndex}.xml.rels`;
+                if (zip.file(relsPath)) {
+                    const relsXml = await zip.file(relsPath).async('string');
+                    const relsDoc = parser.parseFromString(relsXml, "application/xml");
+                    const rels = relsDoc.getElementsByTagName('Relationship');
+                    for (let i = 0; i < rels.length; i++) {
+                        const target = rels[i].getAttribute('Target');
+                        if (target && target.includes('../media/image')) {
+                            const imgPath = `ppt/media/${target.split('/').pop()}`;
+                            if (!imageToSlides[imgPath]) imageToSlides[imgPath] = [];
+                            imageToSlides[imgPath].push({ path, index: slideIndex });
+                        }
+                    }
+                }
+            }
+        }
+
         // 2. NotebookLM PPTX exports usually bake the slides and watermark into images.
         // We need to process all large images in ppt/media/ and mask the bottom right.
         const mediaRegex = /^ppt\/media\/image\d+\.(png|jpeg|jpg)$/i;
         
+        const ocrCache = {}; // Cache OCR text for step 3 if already extracted
+        let maxShapeId = 1000;
+
         for (const relativePath in zip.files) {
             if (mediaRegex.test(relativePath)) {
                 let imgBlob = await zip.file(relativePath).async("blob");
                 const ext = relativePath.split('.').pop().toLowerCase();
                 let mimeType = ext === 'png' ? 'image/png' : 'image/jpeg';
+                
+                let layoutBlocks = [];
+                if (editableTextCheckbox && editableTextCheckbox.checked) {
+                    const apiKey = googleApiKeyInput.value.trim();
+                    const selectedModel = geminiModelSelect.value || 'gemini-1.5-flash';
+                    const base64 = await blobToBase64(imgBlob);
+                    
+                    const pText = document.querySelector('#processingOverlay p');
+                    if (pText) pText.innerText = `處理中... (正在辨識圖片文字佈局)`;
+                    
+                    layoutBlocks = await performOCRWithLayout(base64, mimeType, apiKey, selectedModel);
+                    
+                    // Cache combined text for OCR notes injection
+                    if (layoutBlocks.length > 0) {
+                        ocrCache[relativePath] = layoutBlocks.map(b => b.text).join('\n');
+                    }
+                }
                 
                 const modifiedImgBlob = await new Promise((resolve) => {
                     const img = new Image();
@@ -308,6 +356,12 @@ document.addEventListener('DOMContentLoaded', () => {
                             removeWhiteBackgroundCanvas(canvas, ctx);
                             mimeType = 'image/png';
                         }
+                        
+                        // Apply editable text filter (erase black/blue)
+                        if (editableTextCheckbox && editableTextCheckbox.checked) {
+                            removeTextColorsCanvas(canvas, ctx);
+                            mimeType = 'image/png';
+                        }
 
                         canvas.toBlob((blob) => {
                             URL.revokeObjectURL(url);
@@ -325,6 +379,34 @@ document.addEventListener('DOMContentLoaded', () => {
                 // but PowerPoint can usually handle PNG data inside a .jpeg extension if we just replace the blob.
                 // It's safer to just let JSZip write the PNG bytes to the .jpeg file path. PowerPoint handles it gracefully.
                 zip.file(relativePath, modifiedImgBlob);
+                
+                // Inject TextBoxes to slides
+                if (layoutBlocks.length > 0 && imageToSlides[relativePath]) {
+                    for (const slideInfo of imageToSlides[relativePath]) {
+                        const slideXmlStr = await zip.file(slideInfo.path).async("string");
+                        const slideDoc = parser.parseFromString(slideXmlStr, "application/xml");
+                        const spTree = slideDoc.getElementsByTagName("p:spTree")[0];
+                        if (spTree) {
+                            layoutBlocks.forEach(block => {
+                                const W = 12192000;
+                                const H = 6858000;
+                                const box = block.box;
+                                if(box && box.length === 4) {
+                                    const ymin = box[0], xmin = box[1], ymax = box[2], xmax = box[3];
+                                    const y = (ymin / 1000) * H;
+                                    const x = (xmin / 1000) * W;
+                                    const cy = ((ymax - ymin) / 1000) * H;
+                                    const cx = ((xmax - xmin) / 1000) * W;
+                                    
+                                    const shapeXml = createShapeXml(maxShapeId++, block.text, x, y, cx, cy, block.color);
+                                    const shapeDoc = parser.parseFromString(shapeXml, "application/xml");
+                                    spTree.appendChild(shapeDoc.documentElement.cloneNode(true));
+                                }
+                            });
+                            zip.file(slideInfo.path, serializer.serializeToString(slideDoc));
+                        }
+                    }
+                }
             }
         }
 
@@ -358,15 +440,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     
                     if (imagePath && zip.file(imagePath)) {
-                        const imgBlob = await zip.file(imagePath).async('blob');
-                        const ext = imagePath.split('.').pop().toLowerCase();
-                        const mimeType = ext === 'png' ? 'image/png' : 'image/jpeg';
-                        const base64 = await blobToBase64(imgBlob);
+                        let text = ocrCache[imagePath];
                         
-                        const pText = document.querySelector('#processingOverlay p');
-                        if (pText) pText.innerText = `處理中... (正在辨識第 ${slideIndex} 頁文字)`;
-                        
-                        const text = await performOCR(base64, mimeType, apiKey, selectedModel);
+                        if (!text) {
+                            const imgBlob = await zip.file(imagePath).async('blob');
+                            const ext = imagePath.split('.').pop().toLowerCase();
+                            const mimeType = ext === 'png' ? 'image/png' : 'image/jpeg';
+                            const base64 = await blobToBase64(imgBlob);
+                            
+                            const pText = document.querySelector('#processingOverlay p');
+                            if (pText) pText.innerText = `處理中... (正在辨識第 ${slideIndex} 頁文字)`;
+                            
+                            text = await performOCR(base64, mimeType, apiKey, selectedModel);
+                        }
                         
                         if (text) {
                             const notesSlidePath = `ppt/notesSlides/notesSlide${slideIndex}.xml`;
@@ -494,6 +580,83 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    async function performOCRWithLayout(base64Image, mimeType, apiKey, modelName = 'gemini-1.5-flash') {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+        const requestBody = {
+            generationConfig: {
+                responseMimeType: "application/json"
+            },
+            contents: [{
+                parts: [
+                    { text: `Analyze the image and extract all text. Return a JSON array where each element is an object representing a text block.
+Each object must have:
+- "text": The recognized string (preserve Traditional Chinese).
+- "color": The color of the text, either "black" or "blue".
+- "box": [ymin, xmin, ymax, xmax] normalized to 0-1000.
+Do not include any other markdown, just the JSON array.` },
+                    {
+                        inlineData: {
+                            mimeType: mimeType,
+                            data: base64Image
+                        }
+                    }
+                ]
+            }]
+        };
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            });
+            const data = await response.json();
+            if (data.error) {
+                console.error('Gemini API Error:', data.error);
+                return [];
+            }
+            const textContent = data.candidates[0]?.content?.parts[0]?.text || '[]';
+            return JSON.parse(textContent);
+        } catch (e) {
+            console.error('OCR Layout Error:', e);
+            return [];
+        }
+    }
+
+    function createShapeXml(id, text, x, y, cx, cy, colorStr) {
+        const hexColor = colorStr === 'blue' ? '0070C0' : '000000';
+        const escapedText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        
+        return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sp xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+    <p:nvSpPr>
+        <p:cNvPr id="${id}" name="TextBox ${id}"/>
+        <p:cNvSpPr txBox="1"/>
+        <p:nvPr/>
+    </p:nvSpPr>
+    <p:spPr>
+        <a:xfrm>
+            <a:off x="${Math.round(x)}" y="${Math.round(y)}"/>
+            <a:ext cx="${Math.round(cx)}" cy="${Math.round(cy)}"/>
+        </a:xfrm>
+        <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+        <a:noFill/>
+    </p:spPr>
+    <p:txBody>
+        <a:bodyPr wrap="square" rtlCol="0"><a:spAutoFit/></a:bodyPr>
+        <a:lstStyle/>
+        <a:p>
+            <a:r>
+                <a:rPr lang="zh-TW" sz="2000">
+                    <a:solidFill><a:srgbClr val="${hexColor}"/></a:solidFill>
+                </a:rPr>
+                <a:t>${escapedText}</a:t>
+            </a:r>
+        </a:p>
+    </p:txBody>
+</p:sp>`;
+    }
+
     // UI Helper to show result
     function addResultItem(originalName, blob) {
         const downloadUrl = URL.createObjectURL(blob);
@@ -601,6 +764,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Smooth alpha transition to prevent jagged edges/halos
                 const alpha = Math.floor((dist / threshold) * 255);
                 data[i+3] = alpha;
+            }
+        }
+        ctx.putImageData(imgData, 0, 0);
+    }
+
+    function removeTextColorsCanvas(canvas, ctx) {
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imgData.data;
+        
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i+1];
+            const b = data[i+2];
+            const a = data[i+3];
+            if (a === 0) continue;
+            
+            // Black / Dark Gray
+            if (r < 80 && g < 80 && b < 80) {
+                data[i+3] = 0;
+            } else if (b > 100 && r < b - 40 && g < b - 40) { // Blue
+                data[i+3] = 0;
             }
         }
         ctx.putImageData(imgData, 0, 0);
