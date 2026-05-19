@@ -1655,30 +1655,44 @@ ${styleYaml}
         function groupPdfTextItems(items, viewport, canvasW, canvasH) {
             if (!items || items.length === 0) return [];
 
-            // 將每個 item 轉換為 canvas 座標
+            // viewport.scale: PDF 單位 → canvas 像素的縮放比例
+            // convertToViewportPoint() 已內建此轉換，但 item.width/height 還是原始 PDF 單位
+            const scale = viewport.scale;
+
             const parsed = [];
             for (const item of items) {
                 if (typeof item.str !== 'string' || !item.str.trim()) continue;
                 const tf = item.transform; // [a,b,c,d,e,f]
-                // (tf[4], tf[5]) 是 PDF 空間中的文字基準線起始點
+
+                // 文字基準線起始點（PDF 空間 → canvas 像素，已含 scale 與 y 翻轉）
                 const [vx, vy] = viewport.convertToViewportPoint(tf[4], tf[5]);
-                // 字級：transform 矩陣 a 分量（縮放）
-                const fontSizePx = Math.abs(tf[3]) > 0 ? Math.abs(tf[3]) : Math.abs(tf[0]);
-                const widthPx   = (item.width  || 0);
-                const heightPx  = (item.height || fontSizePx) > 0 ? (item.height || fontSizePx) : fontSizePx;
+
+                // 字級（PDF units）× scale → canvas pixels
+                const fontSizePdf = Math.abs(tf[3]) > 0 ? Math.abs(tf[3]) : Math.abs(tf[0]);
+                const fontSizePx  = fontSizePdf * scale;
+
+                // item.width/height 是 PDF units，需乘 scale
+                const widthPx  = (item.width  || 0) * scale;
+                const heightPx = ((item.height || fontSizePdf) > 0
+                    ? (item.height || fontSizePdf)
+                    : fontSizePdf) * scale;
+
+                if (widthPx <= 0 || fontSizePx <= 0) continue;
                 parsed.push({ str: item.str, vx, vy, widthPx, heightPx, fontSizePx });
             }
             if (!parsed.length) return [];
 
-            // 依 Y 排序（由上到下）
+            console.log(`[PDF Text] 共 ${parsed.length} 個文字 item，scale=${scale.toFixed(2)}`);
+
+            // 依 Y 排序（canvas 座標，y 值小 = 靠上）
             parsed.sort((a, b) => a.vy - b.vy || a.vx - b.vx);
 
-            // 分行：相鄰 item 若 ΔY < 半個字高則同一行
+            // 分行：ΔY ≤ 0.8 個字高視為同一行
             const lines = [[parsed[0]]];
             for (let i = 1; i < parsed.length; i++) {
                 const cur  = parsed[i];
                 const prev = lines[lines.length - 1][0];
-                const tol  = Math.max(prev.heightPx, cur.heightPx) * 0.5;
+                const tol  = Math.max(prev.heightPx, cur.heightPx) * 0.8;
                 if (Math.abs(cur.vy - prev.vy) <= tol) {
                     lines[lines.length - 1].push(cur);
                 } else {
@@ -1689,13 +1703,13 @@ ${styleYaml}
             const blocks = [];
             for (const line of lines) {
                 line.sort((a, b) => a.vx - b.vx);
-                // 水平合併：間距 < 1.5 個字高視為同一組
+                // 水平合併：間距 ≤ 3 個字高視為同一組
                 const groups = [[line[0]]];
                 for (let i = 1; i < line.length; i++) {
                     const g    = groups[groups.length - 1];
                     const last = g[g.length - 1];
                     const gap  = line[i].vx - (last.vx + last.widthPx);
-                    const maxGap = Math.max(last.heightPx, line[i].heightPx) * 2;
+                    const maxGap = Math.max(last.heightPx, line[i].heightPx) * 3;
                     if (gap <= maxGap) { g.push(line[i]); }
                     else { groups.push([line[i]]); }
                 }
@@ -1722,8 +1736,10 @@ ${styleYaml}
                     }
                 }
             }
+            console.log(`[PDF Text] 合併後 ${blocks.length} 個文字塊`);
             return blocks;
         }
+
 
         async function startConversion() {
             if (pdfPages.length === 0) { alert('請先上傳 PDF 檔案。'); return; }
