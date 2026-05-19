@@ -13,6 +13,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.4.3/dist/browser.js"></script>
     <script async src="https://docs.opencv.org/4.8.0/opencv.js" type="text/javascript"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
     <div class="app-container">
@@ -28,6 +29,11 @@
                 <li><a href="#" class="nav-item" data-target="tab-custom">自訂表達 (指令生成)</a></li>
                 <li><a href="#" class="nav-item" data-target="tab-style">一鍵風格</a></li>
                 <li><a href="#" class="nav-item active" data-target="tab-watermark">去浮水印</a></li>
+            </ul>
+
+            <div class="nav-group-title" style="margin-top: 24px;">PDF 工具</div>
+            <ul class="nav-links">
+                <li><a href="#" class="nav-item" data-target="tab-pdf2pptx">PDF 轉可編輯 PPTX</a></li>
             </ul>
 
             <div class="nav-group-title" style="margin-top: 24px;">ChatGPT 工具</div>
@@ -295,6 +301,96 @@
                         <textarea id="output-poster" class="form-textarea" readonly placeholder="點擊上方按鈕生成..."></textarea>
                         <button class="btn btn-copy" onclick="copyToClipboard('output-poster')">複製指令</button>
                     </div>
+                </div>
+
+                <!-- TAB 5: PDF 轉可編輯 PPTX -->
+                <div id="tab-pdf2pptx" class="tool-section" style="display: none;">
+                    <div class="tool-header">
+                        <h1>PDF 轉可編輯 PPTX</h1>
+                        <p>上傳任意 PDF，AI 自動辨識每頁文字佈局，輸出每個文字都是真正可編輯文字框的 PowerPoint 檔案</p>
+                    </div>
+
+                    <div class="info-card" style="background:#EDE7F6; border:1px solid #B39DDB; color:#4527A0;">
+                        <span class="icon">🤖</span>
+                        <div class="info-text">
+                            <strong>AI 驅動，100% 本地處理：</strong> 使用 Google Gemini Vision 辨識文字位置與樣式，所有 PDF 渲染均在瀏覽器本地完成，檔案不會上傳至任何伺服器（除 Gemini API 外）。
+                        </div>
+                    </div>
+
+                    <details class="usage-guide">
+                        <summary>
+                            <span class="icon">📖</span> 使用說明
+                            <span class="chevron">▼</span>
+                        </summary>
+                        <div class="guide-content">
+                            <ol>
+                                <li>輸入您的 Google Gemini API Key（<a href="https://aistudio.google.com/apikey" target="_blank">取得 API Key</a>）。</li>
+                                <li>選擇 AI 模型（建議使用 Gemini 2.5 Flash 以達到最佳速度與精確度）。</li>
+                                <li>將 PDF 檔案拖曳到下方上傳區域，或點擊選擇檔案。</li>
+                                <li>點擊「開始轉換」，等待 AI 逐頁分析（每頁約 5-15 秒）。</li>
+                                <li>轉換完成後，下載可編輯的 .pptx 檔案。</li>
+                            </ol>
+                        </div>
+                    </details>
+
+                    <!-- API 設定 -->
+                    <div class="wizard-container" style="margin-bottom: 24px;">
+                        <div class="form-group" style="margin-bottom: 16px;">
+                            <label for="pdf2pptx-model-select">AI 模型</label>
+                            <div style="display: flex; gap: 8px; align-items: center;">
+                                <select id="pdf2pptx-model-select" class="form-select" style="flex:1;">
+                                    <option value="gemini-2.5-flash-preview-05-20">Gemini 2.5 Flash (最新，推薦)</option>
+                                    <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                                    <option value="gemini-1.5-flash">Gemini 1.5 Flash (速度快)</option>
+                                    <option value="gemini-1.5-pro">Gemini 1.5 Pro (精確度高)</option>
+                                    <option value="gemini-2.5-pro-preview-05-06">Gemini 2.5 Pro (最高精確)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="pdf2pptx-api-key">Google Gemini API Key</label>
+                            <input type="password" id="pdf2pptx-api-key" class="form-input" placeholder="請輸入 Google API / Gemini API Key">
+                        </div>
+                    </div>
+
+                    <!-- 上傳區 -->
+                    <div class="dropzone-container" id="pdf2pptx-dropzone" style="margin-bottom: 24px;">
+                        <input type="file" id="pdf2pptx-file-input" accept=".pdf" style="display: none;">
+                        <div class="dropzone-content">
+                            <div class="upload-icon">📄</div>
+                            <h3>拖曳或點擊上傳 PDF 檔案</h3>
+                            <p class="support-text">支援任意 PDF，每頁將渲染為 1920×1080 高解析度圖片後進行 OCR</p>
+                        </div>
+                        <div class="processing-overlay" id="pdf2pptx-overlay">
+                            <div class="spinner"></div>
+                            <p id="pdf2pptx-status">準備中...</p>
+                        </div>
+                    </div>
+
+                    <!-- 進度列 -->
+                    <div id="pdf2pptx-progress-wrap" style="display:none; margin-bottom: 24px;">
+                        <div style="display:flex; justify-content:space-between; font-size:13px; color:#666; margin-bottom:6px;">
+                            <span id="pdf2pptx-progress-label">處理第 0 / 0 頁</span>
+                            <span id="pdf2pptx-progress-pct">0%</span>
+                        </div>
+                        <div class="pdf2pptx-progress-bar-bg">
+                            <div class="pdf2pptx-progress-bar" id="pdf2pptx-progress-bar" style="width:0%"></div>
+                        </div>
+                    </div>
+
+                    <!-- 頁面預覽 -->
+                    <div id="pdf2pptx-preview-grid" class="pdf2pptx-preview-grid"></div>
+
+                    <!-- 轉換按鈕 -->
+                    <div style="display:flex; gap:12px; margin-top: 8px;">
+                        <button id="pdf2pptx-convert-btn" class="btn btn-primary" disabled style="flex:1; font-size:16px; padding:14px;">
+                            🔄 開始轉換為可編輯 PPTX
+                        </button>
+                        <button id="pdf2pptx-clear-btn" class="btn btn-login" style="padding:14px 20px;">清除</button>
+                    </div>
+
+                    <!-- 結果 -->
+                    <div class="results-container" id="pdf2pptx-results"></div>
                 </div>
 
             </div>

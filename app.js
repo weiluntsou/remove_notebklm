@@ -1421,6 +1421,393 @@ ${styleYaml}
         });
     });
 
+    // ============================================================
+    // PDF 轉可編輯 PPTX 功能
+    // ============================================================
+    (function initPdf2Pptx() {
+        // 設定 pdf.js worker
+        if (typeof pdfjsLib !== 'undefined') {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        }
+
+        const dropzone   = document.getElementById('pdf2pptx-dropzone');
+        const fileInput  = document.getElementById('pdf2pptx-file-input');
+        const convertBtn = document.getElementById('pdf2pptx-convert-btn');
+        const clearBtn   = document.getElementById('pdf2pptx-clear-btn');
+        const overlay    = document.getElementById('pdf2pptx-overlay');
+        const statusEl   = document.getElementById('pdf2pptx-status');
+        const progressWrap = document.getElementById('pdf2pptx-progress-wrap');
+        const progressBar  = document.getElementById('pdf2pptx-progress-bar');
+        const progressLabel = document.getElementById('pdf2pptx-progress-label');
+        const progressPct   = document.getElementById('pdf2pptx-progress-pct');
+        const previewGrid  = document.getElementById('pdf2pptx-preview-grid');
+        const resultsEl    = document.getElementById('pdf2pptx-results');
+        const apiKeyInput  = document.getElementById('pdf2pptx-api-key');
+        const modelSelect  = document.getElementById('pdf2pptx-model-select');
+
+        if (!dropzone) return;
+
+        // 持久化儲存 API Key
+        const savedKey = localStorage.getItem('googleApiKey');
+        if (savedKey) apiKeyInput.value = savedKey;
+        apiKeyInput.addEventListener('input', () => localStorage.setItem('googleApiKey', apiKeyInput.value));
+
+        let pdfPages = []; // { pageNum, canvas, dataUrl }
+        let currentFile = null;
+
+        // Drag & Drop
+        ['dragenter','dragover','dragleave','drop'].forEach(ev => {
+            dropzone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); });
+        });
+        ['dragenter','dragover'].forEach(ev => dropzone.addEventListener(ev, () => dropzone.classList.add('dragover')));
+        ['dragleave','drop'].forEach(ev => dropzone.addEventListener(ev, () => dropzone.classList.remove('dragover')));
+        dropzone.addEventListener('drop', e => handlePdfFile(e.dataTransfer.files[0]));
+        dropzone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', e => { if (e.target.files[0]) handlePdfFile(e.target.files[0]); fileInput.value=''; });
+
+        clearBtn.addEventListener('click', () => {
+            pdfPages = [];
+            currentFile = null;
+            previewGrid.innerHTML = '';
+            resultsEl.innerHTML = '';
+            progressWrap.style.display = 'none';
+            convertBtn.disabled = true;
+        });
+
+        convertBtn.addEventListener('click', () => startConversion());
+
+        async function handlePdfFile(file) {
+            if (!file || file.type !== 'application/pdf') {
+                alert('請上傳 PDF 格式的檔案。');
+                return;
+            }
+            currentFile = file;
+            pdfPages = [];
+            previewGrid.innerHTML = '';
+            resultsEl.innerHTML = '';
+            progressWrap.style.display = 'none';
+            convertBtn.disabled = true;
+
+            if (typeof pdfjsLib === 'undefined') {
+                alert('pdf.js 尚未載入，請稍候重試。');
+                return;
+            }
+
+            overlay.classList.add('active');
+            statusEl.textContent = '讀取 PDF...';
+
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                const totalPages = pdf.numPages;
+
+                statusEl.textContent = `渲染 PDF 共 ${totalPages} 頁...`;
+
+                for (let i = 1; i <= totalPages; i++) {
+                    statusEl.textContent = `渲染第 ${i} / ${totalPages} 頁...`;
+                    const page = await pdf.getPage(i);
+                    const viewport = page.getViewport({ scale: 1 });
+                    // 目標寬度 1920px
+                    const scale = 1920 / viewport.width;
+                    const scaledViewport = page.getViewport({ scale });
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width  = scaledViewport.width;
+                    canvas.height = scaledViewport.height;
+                    const ctx = canvas.getContext('2d');
+                    await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
+
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+                    pdfPages.push({ pageNum: i, canvas, dataUrl, width: canvas.width, height: canvas.height });
+
+                    // 加入預覽卡片
+                    const card = document.createElement('div');
+                    card.className = 'pdf2pptx-page-card';
+                    card.id = `pdf2pptx-card-${i}`;
+                    card.innerHTML = `
+                        <img src="${dataUrl}" alt="第 ${i} 頁">
+                        <div class="page-label">
+                            <span>第 ${i} 頁</span>
+                            <span class="page-status" id="pdf2pptx-status-${i}">待處理</span>
+                        </div>`;
+                    previewGrid.appendChild(card);
+                }
+
+                convertBtn.disabled = false;
+            } catch (err) {
+                console.error('PDF 讀取失敗:', err);
+                alert('PDF 讀取失敗：' + err.message);
+            } finally {
+                overlay.classList.remove('active');
+            }
+        }
+
+        async function startConversion() {
+            const apiKey = apiKeyInput.value.trim();
+            if (!apiKey) { alert('請先輸入 Google Gemini API Key。'); return; }
+            if (pdfPages.length === 0) { alert('請先上傳 PDF 檔案。'); return; }
+
+            const model = modelSelect.value || 'gemini-2.5-flash-preview-05-20';
+            const total = pdfPages.length;
+
+            convertBtn.disabled = true;
+            progressWrap.style.display = 'block';
+            resultsEl.innerHTML = '';
+
+            // PPTX 尺寸 EMU (9144000 x 5143500 for 16:9)
+            const PPTX_W = 9144000;
+            const PPTX_H = 5143500;
+
+            const allPageData = []; // { imgBase64, imgExt, layoutBlocks, width, height }
+
+            for (let i = 0; i < total; i++) {
+                const { pageNum, dataUrl, width, height } = pdfPages[i];
+                updateProgress(i, total, `正在 OCR 第 ${pageNum} / ${total} 頁...`);
+                setPageStatus(pageNum, 'processing', 'AI 辨識中...');
+
+                const base64 = dataUrl.split(',')[1];
+                let layoutBlocks = [];
+                try {
+                    layoutBlocks = await callGeminiOcrLayout(base64, 'image/jpeg', apiKey, model);
+                    setPageStatus(pageNum, 'done', `✓ ${layoutBlocks.length} 個文字塊`);
+                } catch (e) {
+                    console.error(`第 ${pageNum} 頁 OCR 失敗:`, e);
+                    setPageStatus(pageNum, 'error', 'OCR 失敗');
+                }
+
+                allPageData.push({ imgBase64: base64, imgExt: 'jpeg', layoutBlocks, width, height });
+                updateProgress(i + 1, total, `已完成第 ${i + 1} / ${total} 頁`);
+            }
+
+            updateProgress(total, total, '組裝 PPTX 檔案...');
+
+            try {
+                const pptxBlob = await buildEditablePptx(allPageData, PPTX_W, PPTX_H);
+                const baseName = (currentFile?.name || 'output').replace(/\.pdf$/i, '');
+                const fileName = `${baseName}_可編輯.pptx`;
+                showDownloadResult(pptxBlob, fileName, total);
+            } catch (err) {
+                console.error('PPTX 組裝失敗:', err);
+                alert('PPTX 組裝失敗：' + err.message);
+            }
+
+            convertBtn.disabled = false;
+        }
+
+        function updateProgress(done, total, label) {
+            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+            progressBar.style.width = pct + '%';
+            progressLabel.textContent = label || `處理第 ${done} / ${total} 頁`;
+            progressPct.textContent = pct + '%';
+        }
+
+        function setPageStatus(pageNum, cls, text) {
+            const el = document.getElementById(`pdf2pptx-status-${pageNum}`);
+            if (!el) return;
+            el.className = `page-status ${cls}`;
+            el.textContent = text;
+        }
+
+        async function callGeminiOcrLayout(base64Image, mimeType, apiKey, modelName) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+            const prompt = `請分析圖片中的所有文字區塊，並回傳 JSON 陣列。
+
+每個物件格式：
+{
+  "text": "文字內容（多行用\\n分隔）",
+  "box": [ymin, xmin, ymax, xmax],
+  "text_color": "#RRGGBB",
+  "background_color": "#RRGGBB",
+  "font_size_px": 32,
+  "is_bold": true,
+  "text_align": "left"
+}
+
+box 為 normalized 座標 0-1000（整數）。
+回傳必須是純 JSON 陣列，不要 markdown 或說明文字。`;
+
+            const body = {
+                generationConfig: { responseMimeType: 'application/json' },
+                contents: [{
+                    parts: [
+                        { text: prompt },
+                        { inlineData: { mimeType, data: base64Image } }
+                    ]
+                }]
+            };
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error.message);
+            const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+            try { return JSON.parse(raw); } catch { return []; }
+        }
+
+        async function buildEditablePptx(pages, PPTX_W, PPTX_H) {
+            const zip = new JSZip();
+
+            // _rels/.rels
+            zip.file('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
+</Relationships>`);
+
+            // ppt/_rels/presentation.xml.rels
+            const slideRels = pages.map((_, i) =>
+                `<Relationship Id="rId${i+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${i+1}.xml"/>`
+            ).join('\n  ');
+            zip.file('ppt/_rels/presentation.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  ${slideRels}
+</Relationships>`);
+
+            // ppt/presentation.xml
+            const sldIdList = pages.map((_, i) =>
+                `<p:sldId id="${256 + i}" r:id="rId${i+1}"/>`
+            ).join('\n    ');
+            zip.file('ppt/presentation.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:sldMasterIdLst/>
+  <p:sldSz cx="${PPTX_W}" cy="${PPTX_H}"/>
+  <p:notesSz cx="6858000" cy="9144000"/>
+  <p:sldIdLst>
+    ${sldIdList}
+  </p:sldIdLst>
+</p:presentation>`);
+
+            // Content Types
+            const overrides = pages.map((_, i) =>
+                `<Override PartName="/ppt/slides/slide${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`
+            ).join('\n  ');
+            const imgOverrides = pages.map((_, i) =>
+                `<Default Extension="jpeg" ContentType="image/jpeg"/>`
+            );
+            zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Default Extension="jpeg" ContentType="image/jpeg"/>
+  <Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>
+  ${overrides}
+</Types>`);
+
+            // 每頁 slide
+            for (let i = 0; i < pages.length; i++) {
+                const { imgBase64, imgExt, layoutBlocks, width, height } = pages[i];
+                const slideNum = i + 1;
+                const imgFileName = `image${slideNum}.jpeg`;
+                const imgPath = `ppt/media/${imgFileName}`;
+
+                // 寫入圖片
+                zip.file(imgPath, imgBase64, { base64: true });
+
+                // slide rels
+                zip.file(`ppt/slides/_rels/slide${slideNum}.xml.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/${imgFileName}"/>
+</Relationships>`);
+
+                // 建立文字框 XML
+                let shapeXmls = '';
+                let shapeId = 100;
+                for (const block of layoutBlocks) {
+                    const box = block.box;
+                    if (!box || !Array.isArray(box) || box.length !== 4) continue;
+                    const [ymin, xmin, ymax, xmax] = box;
+                    const x  = Math.round((xmin / 1000) * PPTX_W);
+                    const y  = Math.round((ymin / 1000) * PPTX_H);
+                    const cx = Math.round(((xmax - xmin) / 1000) * PPTX_W);
+                    const cy = Math.round(((ymax - ymin) / 1000) * PPTX_H * 1.25);
+
+                    let hexColor = '000000';
+                    const c = block.text_color || '';
+                    if (c.startsWith('#')) hexColor = c.replace('#', '');
+
+                    const alignMap = { left: 'l', center: 'ctr', right: 'r', justify: 'just' };
+                    const pptAlign = alignMap[block.text_align] || 'l';
+
+                    let ptSize = 18;
+                    if (block.font_size_px) {
+                        ptSize = Math.round(block.font_size_px * 0.75);
+                    } else {
+                        const boxHPx = ((ymax - ymin) / 1000) * 720;
+                        const lines  = (block.text.match(/\n/g) || []).length + 1;
+                        ptSize = Math.round((boxHPx / lines) * 0.55);
+                    }
+                    ptSize = Math.max(8, Math.min(ptSize, 96));
+                    const sz = ptSize * 100;
+                    const bold = block.is_bold ? 'b="1"' : '';
+
+                    const paras = (block.text || '').split('\n').map(line => {
+                        const esc = line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        return `<a:p><a:pPr algn="${pptAlign}"/><a:r><a:rPr lang="zh-TW" sz="${sz}" ${bold} dirty="0"><a:solidFill><a:srgbClr val="${hexColor}"/></a:solidFill></a:rPr><a:t>${esc}</a:t></a:r></a:p>`;
+                    }).join('');
+
+                    shapeXmls += `
+<p:sp>
+  <p:nvSpPr><p:cNvPr id="${shapeId++}" name="TB${shapeId}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
+  <p:spPr>
+    <a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>
+    <a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/>
+  </p:spPr>
+  <p:txBody>
+    <a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0"><a:noAutofit/></a:bodyPr>
+    <a:lstStyle/>
+    ${paras}
+  </p:txBody>
+</p:sp>`;
+                }
+
+                // slide XML（背景圖片 + 文字框）
+                zip.file(`ppt/slides/slide${slideNum}.xml`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:cSld>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${PPTX_W}" cy="${PPTX_H}"/><a:chOff x="0" y="0"/><a:chExt cx="${PPTX_W}" cy="${PPTX_H}"/></a:xfrm></p:grpSpPr>
+      <p:pic>
+        <p:nvPicPr><p:cNvPr id="2" name="bg"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>
+        <p:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>
+        <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${PPTX_W}" cy="${PPTX_H}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+      </p:pic>
+      ${shapeXmls}
+    </p:spTree>
+  </p:cSld>
+  <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
+</p:sld>`);
+            }
+
+            return await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
+        }
+
+        function showDownloadResult(blob, fileName, pageCount) {
+            const url = URL.createObjectURL(blob);
+            const banner = document.createElement('div');
+            banner.className = 'pdf2pptx-success-banner';
+            banner.innerHTML = `
+                <span class="success-icon">🎉</span>
+                <div class="success-text">
+                    <h3>轉換成功！</h3>
+                    <p>共 ${pageCount} 頁，每頁文字均為可編輯文字框，原始背景完整保留。</p>
+                </div>
+                <a href="${url}" download="${fileName}" class="success-btn">⬇ 下載 ${fileName}</a>`;
+            resultsEl.innerHTML = '';
+            resultsEl.appendChild(banner);
+
+            // 自動觸發下載
+            const a = document.createElement('a');
+            a.href = url; a.download = fileName;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        }
+    })();
+
     // 3. GPT 海報攝影 (GPT Poster)
     document.getElementById('btn-generate-poster')?.addEventListener('click', () => {
         const subject = document.getElementById('poster-subject').value || '一個令人驚豔的畫面';

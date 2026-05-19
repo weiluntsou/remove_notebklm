@@ -654,3 +654,143 @@ body {
     font-size: 13px;
     color: var(--text-muted);
 }
+
+/* ============================================
+   PDF 轉可編輯 PPTX — 專用樣式
+   ============================================ */
+
+/* 進度條容器 */
+.pdf2pptx-progress-bar-bg {
+    height: 10px;
+    background: #E8E8E8;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.pdf2pptx-progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #7B1FA2, #AB47BC);
+    border-radius: 10px;
+    transition: width 0.4s ease;
+}
+
+/* 頁面預覽格線 */
+.pdf2pptx-preview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+/* 單頁卡片 */
+.pdf2pptx-page-card {
+    background: #FFFFFF;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    position: relative;
+    transition: var(--transition);
+    animation: slideUp 0.3s ease;
+}
+
+.pdf2pptx-page-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+
+.pdf2pptx-page-card img {
+    width: 100%;
+    display: block;
+    aspect-ratio: 16/9;
+    object-fit: cover;
+}
+
+.pdf2pptx-page-card .page-label {
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.pdf2pptx-page-card .page-status {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    background: #E8E8E8;
+    color: #666;
+}
+
+.pdf2pptx-page-card .page-status.done {
+    background: #E8F5E9;
+    color: #2E7D32;
+}
+
+.pdf2pptx-page-card .page-status.processing {
+    background: #EDE7F6;
+    color: #6A1B9A;
+    animation: pulse-status 1s ease-in-out infinite;
+}
+
+.pdf2pptx-page-card .page-status.error {
+    background: #FFEBEE;
+    color: #C62828;
+}
+
+@keyframes pulse-status {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* 轉換成功橫幅 */
+.pdf2pptx-success-banner {
+    background: linear-gradient(135deg, #7B1FA2, #AB47BC);
+    color: white;
+    padding: 20px 24px;
+    border-radius: var(--radius-lg);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 16px;
+    animation: slideUp 0.4s ease;
+}
+
+.pdf2pptx-success-banner .success-icon {
+    font-size: 36px;
+}
+
+.pdf2pptx-success-banner .success-text h3 {
+    font-size: 17px;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.pdf2pptx-success-banner .success-text p {
+    font-size: 13px;
+    opacity: 0.85;
+}
+
+.pdf2pptx-success-banner .success-btn {
+    margin-left: auto;
+    background: rgba(255,255,255,0.2);
+    border: 1px solid rgba(255,255,255,0.4);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 0.2s;
+    white-space: nowrap;
+}
+
+.pdf2pptx-success-banner .success-btn:hover {
+    background: rgba(255,255,255,0.35);
+}
