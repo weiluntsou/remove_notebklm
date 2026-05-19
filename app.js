@@ -1447,10 +1447,105 @@ ${styleYaml}
 
         if (!dropzone) return;
 
-        // 持久化儲存 API Key
+        // 持久化儲存 API Key，並在輸入後自動刷新模型列表
         const savedKey = localStorage.getItem('googleApiKey');
-        if (savedKey) apiKeyInput.value = savedKey;
-        apiKeyInput.addEventListener('input', () => localStorage.setItem('googleApiKey', apiKeyInput.value));
+        if (savedKey) {
+            apiKeyInput.value = savedKey;
+            // 頁面載入時若已有 key，延遲 300ms 自動刷新一次
+            setTimeout(() => refreshModelList(savedKey, false), 300);
+        }
+
+        let _refreshTimer = null;
+        apiKeyInput.addEventListener('input', () => {
+            const key = apiKeyInput.value.trim();
+            localStorage.setItem('googleApiKey', apiKeyInput.value);
+            clearTimeout(_refreshTimer);
+            if (!key) {
+                resetModelSelect();
+                return;
+            }
+            setModelSelectStatus('loading');
+            _refreshTimer = setTimeout(() => refreshModelList(key, true), 800);
+        });
+
+        /** 從 Gemini API 取得可用模型並填入 select */
+        async function refreshModelList(apiKey, showFeedback) {
+            if (!apiKey) return;
+            setModelSelectStatus('loading');
+            try {
+                const res = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+                );
+                const data = await res.json();
+                if (data.error) {
+                    setModelSelectStatus('error', data.error.message);
+                    return;
+                }
+                const geminiModels = (data.models || []).filter(m =>
+                    m.name.includes('gemini') &&
+                    Array.isArray(m.supportedGenerationMethods) &&
+                    m.supportedGenerationMethods.includes('generateContent')
+                );
+                if (geminiModels.length === 0) {
+                    setModelSelectStatus('error', '找不到可用模型');
+                    return;
+                }
+                const currentVal = modelSelect.value;
+                modelSelect.innerHTML = '';
+                geminiModels.forEach(m => {
+                    const id = m.name.replace('models/', '');
+                    const opt = document.createElement('option');
+                    opt.value = id;
+                    opt.textContent = (m.displayName || id) + '  (' + id + ')';
+                    modelSelect.appendChild(opt);
+                });
+                // 優先保留上次選擇的值
+                const preferred = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+                if (Array.from(modelSelect.options).some(o => o.value === currentVal)) {
+                    modelSelect.value = currentVal;
+                } else {
+                    for (const p of preferred) {
+                        const match = Array.from(modelSelect.options).find(o => o.value.startsWith(p));
+                        if (match) { modelSelect.value = match.value; break; }
+                    }
+                }
+                setModelSelectStatus('ok', `已載入 ${geminiModels.length} 個模型`);
+            } catch (e) {
+                setModelSelectStatus('error', '網路錯誤，請確認 API Key');
+            }
+        }
+
+        /** 重置 select 為預設選項 */
+        function resetModelSelect() {
+            modelSelect.innerHTML = `
+                <option value="gemini-2.5-flash-preview-05-20">Gemini 2.5 Flash (最新，推薦)</option>
+                <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                <option value="gemini-1.5-flash">Gemini 1.5 Flash (速度快)</option>
+                <option value="gemini-1.5-pro">Gemini 1.5 Pro (精確度高)</option>
+                <option value="gemini-2.5-pro-preview-05-06">Gemini 2.5 Pro (最高精確)</option>`;
+            setModelSelectStatus('idle');
+        }
+
+        /** 顯示模型列表狀態 badge */
+        function setModelSelectStatus(state, msg) {
+            let badge = document.getElementById('pdf2pptx-model-badge');
+            if (!badge) {
+                badge = document.createElement('span');
+                badge.id = 'pdf2pptx-model-badge';
+                badge.style.cssText = 'font-size:12px; padding:2px 10px; border-radius:20px; font-weight:600; margin-left:8px; display:inline-block; transition: all 0.3s;';
+                modelSelect.parentElement.appendChild(badge);
+            }
+            const styles = {
+                loading: ['#EDE7F6','#6A1B9A','🔄 刷新中...'],
+                ok:      ['#E8F5E9','#2E7D32', '✓ ' + (msg||'')],
+                error:   ['#FFEBEE','#C62828', '✗ ' + (msg||'錯誤')],
+                idle:    ['#F5F5F5','#999',    ''],
+            };
+            const [bg, color, text] = styles[state] || styles.idle;
+            badge.style.background = bg;
+            badge.style.color = color;
+            badge.textContent = text;
+        }
 
         let pdfPages = []; // { pageNum, canvas, dataUrl }
         let currentFile = null;
