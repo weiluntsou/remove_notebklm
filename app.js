@@ -1602,29 +1602,40 @@ ${styleYaml}
                     statusEl.textContent = `渲染第 ${i} / ${totalPages} 頁...`;
                     const page = await pdf.getPage(i);
                     const viewport = page.getViewport({ scale: 1 });
-                    // 目標寬度 1920px
                     const scale = 1920 / viewport.width;
                     const scaledViewport = page.getViewport({ scale });
 
+                    // 渲染至 Canvas
                     const canvas = document.createElement('canvas');
                     canvas.width  = scaledViewport.width;
                     canvas.height = scaledViewport.height;
                     const ctx = canvas.getContext('2d');
                     await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
-
                     const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-                    pdfPages.push({ pageNum: i, canvas, dataUrl, width: canvas.width, height: canvas.height });
 
-                    // 加入預覽卡片
+                    // 抽取 PDF 文字層
+                    statusEl.textContent = `抽取第 ${i} / ${totalPages} 頁文字層...`;
+                    let pdfTextBlocks = [];
+                    try {
+                        const textContent = await page.getTextContent();
+                        pdfTextBlocks = groupPdfTextItems(textContent.items, scaledViewport, canvas.width, canvas.height);
+                    } catch(e) {
+                        console.warn(`第 ${i} 頁文字層抽取失敗:`, e);
+                    }
+                    const hasPdfText = pdfTextBlocks.length > 0;
+
+                    pdfPages.push({ pageNum: i, canvas, dataUrl, width: canvas.width, height: canvas.height, pdfTextBlocks, hasPdfText });
+
+                    // 預覽卡片
                     const card = document.createElement('div');
                     card.className = 'pdf2pptx-page-card';
                     card.id = `pdf2pptx-card-${i}`;
+                    const badge = hasPdfText
+                        ? `<span class="page-status done">📝 ${pdfTextBlocks.length} 個文字塊</span>`
+                        : `<span class="page-status" style="background:#FFF3E0;color:#E65100">🖼 圖像頁面</span>`;
                     card.innerHTML = `
                         <img src="${dataUrl}" alt="第 ${i} 頁">
-                        <div class="page-label">
-                            <span>第 ${i} 頁</span>
-                            <span class="page-status" id="pdf2pptx-status-${i}">待處理</span>
-                        </div>`;
+                        <div class="page-label"><span>第 ${i} 頁</span>${badge}</div>`;
                     previewGrid.appendChild(card);
                 }
 
@@ -1637,10 +1648,93 @@ ${styleYaml}
             }
         }
 
+        /**
+         * 將 pdf.js getTextContent() 返回的分散文字項目，
+         * 依基準線 Y 分行、依水平間距合併，輸出 layoutBlocks 陣列。
+         */
+        function groupPdfTextItems(items, viewport, canvasW, canvasH) {
+            if (!items || items.length === 0) return [];
+
+            // 將每個 item 轉換為 canvas 座標
+            const parsed = [];
+            for (const item of items) {
+                if (typeof item.str !== 'string' || !item.str.trim()) continue;
+                const tf = item.transform; // [a,b,c,d,e,f]
+                // (tf[4], tf[5]) 是 PDF 空間中的文字基準線起始點
+                const [vx, vy] = viewport.convertToViewportPoint(tf[4], tf[5]);
+                // 字級：transform 矩陣 a 分量（縮放）
+                const fontSizePx = Math.abs(tf[3]) > 0 ? Math.abs(tf[3]) : Math.abs(tf[0]);
+                const widthPx   = (item.width  || 0);
+                const heightPx  = (item.height || fontSizePx) > 0 ? (item.height || fontSizePx) : fontSizePx;
+                parsed.push({ str: item.str, vx, vy, widthPx, heightPx, fontSizePx });
+            }
+            if (!parsed.length) return [];
+
+            // 依 Y 排序（由上到下）
+            parsed.sort((a, b) => a.vy - b.vy || a.vx - b.vx);
+
+            // 分行：相鄰 item 若 ΔY < 半個字高則同一行
+            const lines = [[parsed[0]]];
+            for (let i = 1; i < parsed.length; i++) {
+                const cur  = parsed[i];
+                const prev = lines[lines.length - 1][0];
+                const tol  = Math.max(prev.heightPx, cur.heightPx) * 0.5;
+                if (Math.abs(cur.vy - prev.vy) <= tol) {
+                    lines[lines.length - 1].push(cur);
+                } else {
+                    lines.push([cur]);
+                }
+            }
+
+            const blocks = [];
+            for (const line of lines) {
+                line.sort((a, b) => a.vx - b.vx);
+                // 水平合併：間距 < 1.5 個字高視為同一組
+                const groups = [[line[0]]];
+                for (let i = 1; i < line.length; i++) {
+                    const g    = groups[groups.length - 1];
+                    const last = g[g.length - 1];
+                    const gap  = line[i].vx - (last.vx + last.widthPx);
+                    const maxGap = Math.max(last.heightPx, line[i].heightPx) * 2;
+                    if (gap <= maxGap) { g.push(line[i]); }
+                    else { groups.push([line[i]]); }
+                }
+                for (const g of groups) {
+                    const text = g.map(t => t.str).join('');
+                    if (!text.trim()) continue;
+                    const x1 = Math.min(...g.map(t => t.vx));
+                    const x2 = Math.max(...g.map(t => t.vx + t.widthPx));
+                    const y1 = Math.min(...g.map(t => t.vy - t.heightPx));
+                    const y2 = Math.max(...g.map(t => t.vy + t.heightPx * 0.25));
+                    const xmin = Math.max(0,    Math.round((x1 / canvasW) * 1000));
+                    const ymin = Math.max(0,    Math.round((y1 / canvasH) * 1000));
+                    const xmax = Math.min(1000, Math.round((x2 / canvasW) * 1000));
+                    const ymax = Math.min(1000, Math.round((y2 / canvasH) * 1000));
+                    if (xmax > xmin && ymax > ymin) {
+                        blocks.push({
+                            text: text.trim(),
+                            box: [ymin, xmin, ymax, xmax],
+                            font_size_px: g[0].fontSizePx,
+                            text_color: '#000000',
+                            text_align: 'left',
+                            is_bold: false,
+                        });
+                    }
+                }
+            }
+            return blocks;
+        }
+
         async function startConversion() {
-            const apiKey = apiKeyInput.value.trim();
-            if (!apiKey) { alert('請先輸入 Google Gemini API Key。'); return; }
             if (pdfPages.length === 0) { alert('請先上傳 PDF 檔案。'); return; }
+
+            // 判斷是否有頁面需要 OCR（圖像型頁面）
+            const needsOcr = pdfPages.some(p => !p.hasPdfText);
+            const apiKey   = apiKeyInput.value.trim();
+            if (needsOcr && !apiKey) {
+                alert('部分頁面為圖像格式（無文字層），需要 Google Gemini API Key 進行 OCR 辨識。');
+                return;
+            }
 
             const model = modelSelect.value || 'gemini-2.5-flash-preview-05-20';
             const total = pdfPages.length;
@@ -1649,28 +1743,45 @@ ${styleYaml}
             progressWrap.style.display = 'block';
             resultsEl.innerHTML = '';
 
-            // PPTX 尺寸 EMU (9144000 x 5143500 for 16:9)
             const PPTX_W = 9144000;
             const PPTX_H = 5143500;
-
-            const allPageData = []; // { imgBase64, imgExt, layoutBlocks, width, height }
+            const allPageData = [];
 
             for (let i = 0; i < total; i++) {
-                const { pageNum, dataUrl, width, height } = pdfPages[i];
-                updateProgress(i, total, `正在 OCR 第 ${pageNum} / ${total} 頁...`);
-                setPageStatus(pageNum, 'processing', 'AI 辨識中...');
+                const { pageNum, dataUrl, width, height, hasPdfText, pdfTextBlocks } = pdfPages[i];
+                updateProgress(i, total, `處理第 ${pageNum} / ${total} 頁...`);
 
-                const base64 = dataUrl.split(',')[1];
                 let layoutBlocks = [];
-                try {
-                    layoutBlocks = await callGeminiOcrLayout(base64, 'image/jpeg', apiKey, model);
-                    setPageStatus(pageNum, 'done', `✓ ${layoutBlocks.length} 個文字塊`);
-                } catch (e) {
-                    console.error(`第 ${pageNum} 頁 OCR 失敗:`, e);
-                    setPageStatus(pageNum, 'error', 'OCR 失敗');
+
+                if (hasPdfText) {
+                    // ✅ 有文字層：直接使用，不需 OCR
+                    layoutBlocks = pdfTextBlocks;
+                    setPageStatus(pageNum, 'processing', '抹除文字中...');
+                } else {
+                    // 🔍 圖像頁面：呼叫 Gemini OCR
+                    setPageStatus(pageNum, 'processing', 'AI OCR 辨識中...');
+                    try {
+                        const base64 = dataUrl.split(',')[1];
+                        layoutBlocks = await callGeminiOcrLayout(base64, 'image/jpeg', apiKey, model);
+                    } catch (e) {
+                        console.error(`第 ${pageNum} 頁 OCR 失敗:`, e);
+                        setPageStatus(pageNum, 'error', 'OCR 失敗');
+                    }
                 }
 
-                allPageData.push({ imgBase64: base64, imgExt: 'jpeg', layoutBlocks, width, height });
+                // 從背景圖抹除文字（兩種情境都需要）
+                let cleanDataUrl = dataUrl;
+                if (layoutBlocks.length > 0) {
+                    try {
+                        cleanDataUrl = await eraseTextFromImage(dataUrl, layoutBlocks);
+                    } catch(e) {
+                        console.warn('文字抹除失敗，使用原圖:', e);
+                    }
+                }
+
+                const cleanBase64 = cleanDataUrl.split(',')[1];
+                setPageStatus(pageNum, 'done', `✓ ${layoutBlocks.length} 塊 (${hasPdfText ? 'PDF文字層' : 'OCR'})`);
+                allPageData.push({ imgBase64: cleanBase64, imgExt: 'jpeg', layoutBlocks, width, height });
                 updateProgress(i + 1, total, `已完成第 ${i + 1} / ${total} 頁`);
             }
 
@@ -1739,6 +1850,88 @@ box 為 normalized 座標 0-1000（整數）。
             if (data.error) throw new Error(data.error.message);
             const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
             try { return JSON.parse(raw); } catch { return []; }
+        }
+
+        /**
+         * 從圖片中抹除所有 OCR 偵測到的文字區塊。
+         * 對每個文字框，取其外圍一圈像素作為「背景樣本」，
+         * 再用雙線性插值填入框內，讓原始文字消失但背景保持平滑。
+         */
+        function eraseTextFromImage(dataUrl, layoutBlocks) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width  = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+
+                    for (const block of layoutBlocks) {
+                        const box = block.box;
+                        if (!box || !Array.isArray(box) || box.length !== 4) continue;
+                        const [ymin, xmin, ymax, xmax] = box;
+                        if (xmax <= xmin || ymax <= ymin) continue;
+
+                        // 轉換 normalized 座標 → pixel，並加 6px padding
+                        const pad = 6;
+                        const px1 = Math.max(0,              Math.floor((xmin / 1000) * canvas.width)  - pad);
+                        const py1 = Math.max(0,              Math.floor((ymin / 1000) * canvas.height) - pad);
+                        const px2 = Math.min(canvas.width,  Math.ceil( (xmax / 1000) * canvas.width)  + pad);
+                        const py2 = Math.min(canvas.height, Math.ceil( (ymax / 1000) * canvas.height) + pad);
+                        const bw = px2 - px1;
+                        const bh = py2 - py1;
+                        if (bw <= 0 || bh <= 0) continue;
+
+                        // 取邊框外側 4 個角落的顏色，作為雙線性插值基準
+                        const samplePad = 2;
+                        const getPixel = (sx, sy) => {
+                            sx = Math.max(0, Math.min(canvas.width  - 1, sx));
+                            sy = Math.max(0, Math.min(canvas.height - 1, sy));
+                            const d = ctx.getImageData(sx, sy, 1, 1).data;
+                            return [d[0], d[1], d[2]];
+                        };
+
+                        // 4 corner samples just outside the bounding box
+                        const cTL = getPixel(px1 - samplePad, py1 - samplePad);
+                        const cTR = getPixel(px2 + samplePad, py1 - samplePad);
+                        const cBL = getPixel(px1 - samplePad, py2 + samplePad);
+                        const cBR = getPixel(px2 + samplePad, py2 + samplePad);
+
+                        // 取得整個區塊的 ImageData 一次性填色（效能考量）
+                        const regionData = ctx.getImageData(px1, py1, bw, bh);
+                        const pxArr = regionData.data;
+
+                        for (let row = 0; row < bh; row++) {
+                            const ty = row / Math.max(bh - 1, 1); // 0→1
+                            for (let col = 0; col < bw; col++) {
+                                const tx = col / Math.max(bw - 1, 1); // 0→1
+                                // Bilinear interpolation
+                                const r = Math.round(
+                                    cTL[0] * (1-tx)*(1-ty) + cTR[0] * tx*(1-ty) +
+                                    cBL[0] * (1-tx)*ty     + cBR[0] * tx*ty);
+                                const g = Math.round(
+                                    cTL[1] * (1-tx)*(1-ty) + cTR[1] * tx*(1-ty) +
+                                    cBL[1] * (1-tx)*ty     + cBR[1] * tx*ty);
+                                const b = Math.round(
+                                    cTL[2] * (1-tx)*(1-ty) + cTR[2] * tx*(1-ty) +
+                                    cBL[2] * (1-tx)*ty     + cBR[2] * tx*ty);
+
+                                const idx = (row * bw + col) * 4;
+                                pxArr[idx]     = r;
+                                pxArr[idx + 1] = g;
+                                pxArr[idx + 2] = b;
+                                pxArr[idx + 3] = 255;
+                            }
+                        }
+                        ctx.putImageData(regionData, px1, py1);
+                    }
+
+                    resolve(canvas.toDataURL('image/jpeg', 0.95));
+                };
+                img.onerror = reject;
+                img.src = dataUrl;
+            });
         }
 
         async function buildEditablePptx(pages, PPTX_W, PPTX_H) {
