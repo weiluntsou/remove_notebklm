@@ -1630,13 +1630,34 @@ ${styleYaml}
                     const card = document.createElement('div');
                     card.className = 'pdf2pptx-page-card';
                     card.id = `pdf2pptx-card-${i}`;
-                    const badge = hasPdfText
-                        ? `<span class="page-status done">📝 ${pdfTextBlocks.length} 個文字塊</span>`
-                        : `<span class="page-status" style="background:#FFF3E0;color:#E65100">🖼 圖像頁面</span>`;
-                    card.innerHTML = `
-                        <img src="${dataUrl}" alt="第 ${i} 頁">
-                        <div class="page-label"><span>第 ${i} 頁</span>${badge}</div>`;
+
+                    // 建立 badge（帶 id，讓 setPageStatus 轉換時可更新）
+                    const badgeEl = document.createElement('span');
+                    badgeEl.id = `pdf2pptx-status-${i}`;
+                    if (hasPdfText) {
+                        badgeEl.className = 'page-status done';
+                        badgeEl.textContent = `📝 ${pdfTextBlocks.length} 塊・就緒`;
+                    } else {
+                        badgeEl.className = 'page-status';
+                        badgeEl.style.cssText = 'background:#FFF3E0;color:#E65100';
+                        badgeEl.textContent = '🖼 圖像頁面';
+                    }
+
+                    const img = document.createElement('img');
+                    img.src = dataUrl;
+                    img.alt = `第 ${i} 頁`;
+
+                    const label = document.createElement('div');
+                    label.className = 'page-label';
+                    const pageSpan = document.createElement('span');
+                    pageSpan.textContent = `第 ${i} 頁`;
+                    label.appendChild(pageSpan);
+                    label.appendChild(badgeEl);
+
+                    card.appendChild(img);
+                    card.appendChild(label);
                     previewGrid.appendChild(card);
+
                 }
 
                 convertBtn.disabled = false;
