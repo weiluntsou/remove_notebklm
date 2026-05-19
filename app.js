@@ -1883,24 +1883,52 @@ box 為 normalized 座標 0-1000（整數）。
         }
 
         function showDownloadResult(blob, fileName, pageCount) {
+            // 用 DOM API 建立元素，避免 innerHTML 在 file:// 下對 blob: URL 的安全限制
             const url = URL.createObjectURL(blob);
+
             const banner = document.createElement('div');
             banner.className = 'pdf2pptx-success-banner';
-            banner.innerHTML = `
-                <span class="success-icon">🎉</span>
-                <div class="success-text">
-                    <h3>轉換成功！</h3>
-                    <p>共 ${pageCount} 頁，每頁文字均為可編輯文字框，原始背景完整保留。</p>
-                </div>
-                <a href="${url}" download="${fileName}" class="success-btn">⬇ 下載 ${fileName}</a>`;
+
+            const icon = document.createElement('span');
+            icon.className = 'success-icon';
+            icon.textContent = '🎉';
+
+            const textWrap = document.createElement('div');
+            textWrap.className = 'success-text';
+            const h3 = document.createElement('h3');
+            h3.textContent = '轉換成功！';
+            const p = document.createElement('p');
+            p.textContent = `共 ${pageCount} 頁，每頁文字均為可編輯文字框，原始背景完整保留。`;
+            textWrap.appendChild(h3);
+            textWrap.appendChild(p);
+
+            const dlBtn = document.createElement('a');
+            dlBtn.className = 'success-btn';
+            dlBtn.textContent = `⬇ 下載 ${fileName}`;
+            dlBtn.href = url;
+            dlBtn.download = fileName;
+
+            banner.appendChild(icon);
+            banner.appendChild(textWrap);
+            banner.appendChild(dlBtn);
+
             resultsEl.innerHTML = '';
             resultsEl.appendChild(banner);
 
             // 自動觸發下載
-            const a = document.createElement('a');
-            a.href = url; a.download = fileName;
-            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            const autoA = document.createElement('a');
+            autoA.href = url;
+            autoA.download = fileName;
+            autoA.style.display = 'none';
+            document.body.appendChild(autoA);
+            autoA.click();
+            setTimeout(() => {
+                document.body.removeChild(autoA);
+                // 不要過早 revoke，讓手動點「下載」按鈕仍有效
+                // URL.revokeObjectURL(url);
+            }, 5000);
         }
+
     })();
 
     // 3. GPT 海報攝影 (GPT Poster)
