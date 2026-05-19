@@ -1728,17 +1728,7 @@ ${styleYaml}
         async function startConversion() {
             if (pdfPages.length === 0) { alert('請先上傳 PDF 檔案。'); return; }
 
-            // 判斷是否有頁面需要 OCR（圖像型頁面）
-            const needsOcr = pdfPages.some(p => !p.hasPdfText);
-            const apiKey   = apiKeyInput.value.trim();
-            if (needsOcr && !apiKey) {
-                alert('部分頁面為圖像格式（無文字層），需要 Google Gemini API Key 進行 OCR 辨識。');
-                return;
-            }
-
-            const model = modelSelect.value || 'gemini-2.5-flash-preview-05-20';
             const total = pdfPages.length;
-
             convertBtn.disabled = true;
             progressWrap.style.display = 'block';
             resultsEl.innerHTML = '';
@@ -1748,28 +1738,14 @@ ${styleYaml}
             const allPageData = [];
 
             for (let i = 0; i < total; i++) {
-                const { pageNum, dataUrl, width, height, hasPdfText, pdfTextBlocks } = pdfPages[i];
+                const { pageNum, dataUrl, width, height, pdfTextBlocks } = pdfPages[i];
                 updateProgress(i, total, `處理第 ${pageNum} / ${total} 頁...`);
+                setPageStatus(pageNum, 'processing', '抹除文字中...');
 
-                let layoutBlocks = [];
+                // 直接使用 PDF 文字層
+                const layoutBlocks = pdfTextBlocks || [];
 
-                if (hasPdfText) {
-                    // ✅ 有文字層：直接使用，不需 OCR
-                    layoutBlocks = pdfTextBlocks;
-                    setPageStatus(pageNum, 'processing', '抹除文字中...');
-                } else {
-                    // 🔍 圖像頁面：呼叫 Gemini OCR
-                    setPageStatus(pageNum, 'processing', 'AI OCR 辨識中...');
-                    try {
-                        const base64 = dataUrl.split(',')[1];
-                        layoutBlocks = await callGeminiOcrLayout(base64, 'image/jpeg', apiKey, model);
-                    } catch (e) {
-                        console.error(`第 ${pageNum} 頁 OCR 失敗:`, e);
-                        setPageStatus(pageNum, 'error', 'OCR 失敗');
-                    }
-                }
-
-                // 從背景圖抹除文字（兩種情境都需要）
+                // 從背景圖抹除文字區塊
                 let cleanDataUrl = dataUrl;
                 if (layoutBlocks.length > 0) {
                     try {
@@ -1780,7 +1756,7 @@ ${styleYaml}
                 }
 
                 const cleanBase64 = cleanDataUrl.split(',')[1];
-                setPageStatus(pageNum, 'done', `✓ ${layoutBlocks.length} 塊 (${hasPdfText ? 'PDF文字層' : 'OCR'})`);
+                setPageStatus(pageNum, 'done', `✓ ${layoutBlocks.length} 個文字塊`);
                 allPageData.push({ imgBase64: cleanBase64, imgExt: 'jpeg', layoutBlocks, width, height });
                 updateProgress(i + 1, total, `已完成第 ${i + 1} / ${total} 頁`);
             }
@@ -1799,6 +1775,7 @@ ${styleYaml}
 
             convertBtn.disabled = false;
         }
+
 
         function updateProgress(done, total, label) {
             const pct = total > 0 ? Math.round((done / total) * 100) : 0;
