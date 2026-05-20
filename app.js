@@ -1613,18 +1613,21 @@ ${styleYaml}
                     await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
                     const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
 
-                    // 抽取 PDF 文字層
+                    // 抽取 PDF 文字層，並記錄 raw item 數量方便診斷
                     statusEl.textContent = `抽取第 ${i} / ${totalPages} 頁文字層...`;
                     let pdfTextBlocks = [];
+                    let rawItemCount = 0;
                     try {
                         const textContent = await page.getTextContent();
+                        rawItemCount = (textContent.items || []).filter(it => it.str && it.str.trim()).length;
                         pdfTextBlocks = groupPdfTextItems(textContent.items, scaledViewport, canvas.width, canvas.height);
+                        console.log(`[頁 ${i}] 原始 item: ${rawItemCount}，合併塊: ${pdfTextBlocks.length}，scale: ${scaledViewport.scale.toFixed(2)}`);
                     } catch(e) {
                         console.warn(`第 ${i} 頁文字層抽取失敗:`, e);
                     }
                     const hasPdfText = pdfTextBlocks.length > 0;
 
-                    pdfPages.push({ pageNum: i, canvas, dataUrl, width: canvas.width, height: canvas.height, pdfTextBlocks, hasPdfText });
+                    pdfPages.push({ pageNum: i, canvas, dataUrl, width: canvas.width, height: canvas.height, pdfTextBlocks, hasPdfText, rawItemCount });
 
                     // 預覽卡片
                     const card = document.createElement('div');
@@ -1635,13 +1638,24 @@ ${styleYaml}
                     const badgeEl = document.createElement('span');
                     badgeEl.id = `pdf2pptx-status-${i}`;
                     if (hasPdfText) {
+                        // 有文字層且分組成功
                         badgeEl.className = 'page-status done';
-                        badgeEl.textContent = `📝 ${pdfTextBlocks.length} 塊・就緒`;
+                        badgeEl.textContent = `📝 ${rawItemCount}→${pdfTextBlocks.length} 塊`;
+                        badgeEl.title = `原始 item: ${rawItemCount} 個，合併後: ${pdfTextBlocks.length} 個文字塊`;
+                    } else if (rawItemCount > 0) {
+                        // 有 item 但分組後為 0（可能是座標問題）
+                        badgeEl.className = 'page-status';
+                        badgeEl.style.cssText = 'background:#FFF9C4;color:#F57F17';
+                        badgeEl.textContent = `⚠️ ${rawItemCount} items→0塊`;
+                        badgeEl.title = `找到 ${rawItemCount} 個原始文字 item，但分組後為 0。請查看 Console。`;
                     } else {
+                        // 完全無文字層
                         badgeEl.className = 'page-status';
                         badgeEl.style.cssText = 'background:#FFF3E0;color:#E65100';
-                        badgeEl.textContent = '🖼 圖像頁面';
+                        badgeEl.textContent = '🖼 無文字層';
+                        badgeEl.title = '此頁為圖像格式，無文字層';
                     }
+
 
                     const img = document.createElement('img');
                     img.src = dataUrl;
